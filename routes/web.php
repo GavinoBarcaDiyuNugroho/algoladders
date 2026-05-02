@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
+use App\Http\Controllers\RoomController;
 
 Route::inertia('/', 'welcome', [
     'canRegister' => Features::enabled(Features::registration()),
@@ -9,6 +10,13 @@ Route::inertia('/', 'welcome', [
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
+
+    // Game flow
+    Route::inertia('/menu', 'menu')->name('menu');
+    Route::post('/rooms', [RoomController::class, 'store'])->name('rooms.store');
+    Route::post('/rooms/join', [RoomController::class, 'join'])->name('rooms.join');
+    Route::get('/rooms/{code}', [RoomController::class, 'show'])->name('rooms.show');
+    Route::post('/rooms/{code}/ready', [RoomController::class, 'toggleReady'])->name('rooms.ready');
 });
 
 require __DIR__.'/settings.php';

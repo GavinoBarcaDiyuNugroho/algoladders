@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Algo-Ladders: Advanced Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            overflow-x: hidden;
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .board-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(10, 1fr);
+            gap: 2px;
+            width: 100%;
+            max-width: 600px;
+            aspect-ratio: 1 / 1;
+            background: #334155;
+            padding: 2px;
+            border-radius: 8px;
+        }
+
+        .tile {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #1e293b;
+            font-size: 0.65rem;
+            font-weight: bold;
+            color: #475569;
+            transition: background 0.3s;
+        }
+
+        .tile-val {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+
+        .tile-snake {
+            background: #450a0a;
+            color: #ef4444;
+        }
+
+        .tile-ladder {
+            background: #064e3b;
+            color: #10b981;
+        }
+
+        .player-token {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid white;
+            position: absolute;
+            z-index: 20;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .log-container::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .log-container::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+
+        .overlay-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .health-heart {
+            color: #ef4444;
+            font-size: 1rem;
+        }
+
+        .logic-block {
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .logic-block:hover {
+            border-color: #3b82f6;
+            background: #334155;
+        }
+
+        .logic-selected {
+            background: #1e3a8a !important;
+            border-color: #3b82f6 !important;
+            ring: 2px solid #3b82f6;
+        }
+    </style>
+</head>
+
+<body class="p-2 md:p-6">
+    <div class="max-w-7xl mx-auto flex flex-col lg:flex-row gap-6">
+
+        <!-- Sidebar: Player Status -->
+        <div class="w-full lg:w-64 space-y-4 order-2 lg:order-1">
+            <h2 class="text-xl font-bold text-blue-400 mb-4">Players</h2>
+            <div id="player-status-list" class="space-y-3">
+                <!-- Status cards injected here -->
+            </div>
+        </div>
+
+        <!-- Main: Board -->
+        <div class="flex-1 flex flex-col items-center order-1 lg:order-2">
+            <h1 class="text-2xl font-black italic tracking-tighter mb-4 text-white">
+                ALGO<span class="text-blue-500">LADDERS</span>
+            </h1>
+
+            <div class="relative">
+                <div id="board" class="board-grid"></div>
+                <svg id="svg-overlay" class="overlay-layer"></svg>
+                <div id="players-layer" class="absolute inset-0 pointer-events-none"></div>
+            </div>
+        </div>
+
+        <!-- Right: Controls -->
+        <div class="w-full lg:w-96 flex flex-col gap-4 order-3">
+            <!-- Setup Panel -->
+            <div id="setup-panel" class="bg-slate-800 p-6 rounded-xl border border-slate-700">
+                <h2 class="text-lg font-bold mb-4">Start Game</h2>
+                <div class="space-y-2 mb-4">
+                    <label class="text-xs text-slate-400">Number of Players (2-6)</label>
+                    <input type="number" id="player-count" min="2" max="6" value="2"
+                        class="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white">
+                </div>
+                <button onclick="initGame()"
+                    class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Launch
+                    Session</button>
+            </div>
+
+            <!-- Turn Panel -->
+            <div id="game-panel" class="hidden bg-slate-800 p-6 rounded-xl border border-slate-700 space-y-4">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-xs text-slate-400 uppercase font-bold">Active</p>
+                        <p id="cur-player-display" class="text-lg font-black">PLAYER 1</p>
+                    </div>
+                    <div id="die-display"
+                        class="w-12 h-12 bg-slate-900 flex items-center justify-center text-2xl font-mono border-2 border-blue-500 rounded-lg text-blue-400 shadow-lg shadow-blue-900/20">
+                        ?</div>
+                </div>
+
+                <!-- Phase: Choose Powerup -->
+                <div id="phase-powerup" class="grid grid-cols-3 gap-2">
+                    <button onclick="preSelectPower('math')"
+                        class="p-2 bg-slate-700 rounded hover:bg-slate-600 text-center transition">
+                        <div class="text-lg">➕</div>
+                        <div class="text-[10px] font-bold">MATH</div>
+                    </button>
+                    <button onclick="preSelectPower('ifelse')"
+                        class="p-2 bg-slate-700 rounded hover:bg-slate-600 text-center transition">
+                        <div class="text-lg">🌿</div>
+                        <div class="text-[10px] font-bold">IF-ELSE</div>
+                    </button>
+                    <button onclick="preSelectPower('forloop')"
+                        class="p-2 bg-slate-700 rounded hover:bg-slate-600 text-center transition">
+                        <div class="text-lg">🔁</div>
+                        <div class="text-[10px] font-bold">FOR</div>
+                    </button>
+                </div>
+
+                <!-- Phase: Roll Dice -->
+                <button id="roll-btn" onclick="rollDice()"
+                    class="hidden w-full bg-indigo-600 py-3 rounded-lg font-bold hover:bg-indigo-500 transition shadow-lg shadow-indigo-900/40">ROLL
+                    DICE</button>
+
+                <!-- Phase: Action Selection (Math) -->
+                <div id="math-actions" class="hidden grid grid-cols-4 gap-2">
+                    <button onclick="executeMath('+')"
+                        class="bg-blue-600 p-2 rounded font-bold hover:bg-blue-500 text-xl transition shadow-inner">+</button>
+                    <button onclick="executeMath('-')"
+                        class="bg-blue-600 p-2 rounded font-bold hover:bg-blue-500 text-xl transition shadow-inner">-</button>
+                    <button onclick="executeMath('*')"
+                        class="bg-blue-600 p-2 rounded font-bold hover:bg-blue-500 text-xl transition shadow-inner">×</button>
+                    <button onclick="executeMath('/')"
+                        class="bg-blue-600 p-2 rounded font-bold hover:bg-blue-500 text-xl transition shadow-inner">÷</button>
+                </div>
+
+                <!-- Phase: Action Selection (If-Else Builder) -->
+                <div id="ifelse-builder" class="hidden space-y-3">
+                    <div class="bg-slate-900 p-3 rounded border border-slate-700">
+                        <p class="text-[10px] text-blue-400 font-bold mb-1 tracking-widest uppercase">1. If Condition
+                        </p>
+                        <div id="if-cond-list" class="space-y-1"></div>
+                    </div>
+                    <div class="bg-slate-900 p-3 rounded border border-slate-700">
+                        <p class="text-[10px] text-emerald-400 font-bold mb-1 tracking-widest uppercase">2. Then Output
+                        </p>
+                        <div id="if-pos-list" class="space-y-1"></div>
+                    </div>
+                    <div class="bg-slate-900 p-3 rounded border border-slate-700">
+                        <p class="text-[10px] text-rose-400 font-bold mb-1 tracking-widest uppercase">3. Else Output</p>
+                        <div id="if-neg-list" class="space-y-1"></div>
+                    </div>
+                    <button onclick="executeIfElse()"
+                        class="w-full bg-emerald-600 py-3 rounded font-bold mt-2 hover:bg-emerald-500 transition">COMPILE
+                        & RUN</button>
+                </div>
+
+                <!-- Phase: Action Selection (For Loop) -->
+                <div id="for-actions" class="hidden text-center bg-slate-900 p-4 rounded border border-slate-700">
+                    <p id="for-desc" class="text-sm mb-4 text-slate-300">Repeat move x amount of tile value</p>
+                    <button onclick="executeForLoop()"
+                        class="w-full bg-amber-600 py-3 rounded font-bold hover:bg-amber-500 transition">START
+                        LOOP</button>
+                </div>
+            </div>
+
+            <!-- Console -->
+            <div
+                class="bg-slate-800 flex-1 min-h-[150px] rounded-xl border border-slate-700 overflow-hidden flex flex-col">
+                <div class="px-3 py-1 bg-slate-700 text-[10px] font-bold text-slate-400">DEBUG CONSOLE</div>
+                <div id="game-log"
+                    class="p-3 text-xs font-mono overflow-y-auto space-y-1 h-48 log-container bg-slate-950/50"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="msg-modal"
+        class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-6 backdrop-blur-sm">
+        <div class="bg-slate-800 border border-slate-600 p-8 rounded-2xl max-w-sm w-full text-center shadow-2xl">
+            <h3 id="modal-title" class="text-xl font-bold mb-2 text-white">Notice</h3>
+            <p id="modal-body" class="text-slate-400 mb-6 text-sm">Description goes here.</p>
+            <button onclick="closeModal()"
+                class="w-full bg-blue-600 py-2 rounded-lg font-bold hover:bg-blue-500 transition">Proceed</button>
+        </div>
+    </div>
+
+    <script>
+        // Constants & Config
+        const SNAKES = { 98: 20, 85: 40, 70: 30, 50: 5, 42: 12 };
+        const LADDERS = { 3: 35, 10: 45, 25: 60, 55: 80, 75: 95 };
+        const COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ec4899'];
+
+        const IF_CONDITIONS = [
+            { text: "If I step on a snake", id: "snake" },
+            { text: "If someone passed me", id: "passed_me" },
+            { text: "If someone steps on me", id: "stepped_on_me" },
+            { text: "If I step on someone", id: "stepped_on_other" }
+        ];
+
+        const POS_OUTPUTS = [
+            { text: "Move random 1-10", type: "move_rand" },
+            { text: "Move dice roll amount", type: "move_dice" },
+            { text: "Kick player back 1-10", type: "kick_rand" },
+            { text: "Kick back to start", type: "kick_start" },
+            { text: "Stay on my tile", type: "stay" }
+        ];
+
+        const NEG_OUTPUTS = [
+            { text: "Move backward 1-10", type: "back_rand" },
+            { text: "Move back to start", type: "back_start" },
+            { text: "Move backward dice roll", type: "back_dice" }
+        ];
+
+        // State
+        let players = [];
+        let currentPlayerIndex = 0;
+        let lastRoll = 0;
+        let powerSelected = null;
+        let tileValues = {};
+        let selectedCond = null, selectedPos = null, selectedNeg = null;
+        let winnersCount = 0;
+        let isMoving = false;
+
+        function initGame() {
+            const countInput = document.getElementById('player-count');
+            const count = Math.min(6, Math.max(2, parseInt(countInput.value) || 2));
+
+            players = Array.from({ length: count }, (_, i) => ({
+                id: i + 1, pos: 0, color: COLORS[i], hp: 3, alive: true, activeEffect: null
+            }));
+
+            // Generate Tile Values 1-10 (except 0 which is 0)
+            for (let i = 1; i <= 100; i++) tileValues[i] = Math.floor(Math.random() * 11);
+            tileValues[0] = 0;
+
+            document.getElementById('setup-panel').classList.add('hidden');
+            document.getElementById('game-panel').classList.remove('hidden');
+
+            buildBoard();
+            createTokens();
+            updateStatusUI();
+            updateTurnUI();
+            setTimeout(drawSVG, 100);
+        }
+
+        function buildBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            for (let r = 9; r >= 0; r--) {
+                const isEven = r % 2 !== 0;
+                for (let c = 0; c < 10; c++) {
+                    const col = isEven ? (9 - c) : c;
+                    const val = r * 10 + col + 1;
+                    const tile = document.createElement('div');
+                    tile.id = `tile-${val}`;
+                    tile.className = `tile ${SNAKES[val] ? 'tile-snake' : ''} ${LADDERS[val] ? 'tile-ladder' : ''}`;
+                    tile.innerHTML = `<span>${val}</span><span class="tile-val">${tileValues[val]}</span>`;
+                    board.appendChild(tile);
+                }
+            }
+        }
+
+        function createTokens() {
+            const layer = document.getElementById('players-layer');
+            layer.innerHTML = '';
+            players.forEach(p => {
+                const t = document.createElement('div');
+                t.id = `token-${p.id}`;
+                t.className = 'player-token';
+                t.style.backgroundColor = p.color;
+                layer.appendChild(t);
+                syncToken(p.id);
+            });
+        }
+
+        function syncToken(id) {
+            const p = players.find(x => x.id === id);
+            const token = document.getElementById(`token-${id}`);
+            const tile = document.getElementById(`tile-${p.pos || 1}`);
+            if (!tile || !token) return;
+            const bRect = document.getElementById('board').getBoundingClientRect();
+            const tRect = tile.getBoundingClientRect();
+
+            const offset = (id - 1) * 3;
+            const x = tRect.left - bRect.left + (tRect.width / 2) - 7 + offset;
+            const y = tRect.top - bRect.top + (tRect.height / 2) - 7 + offset;
+            token.style.transform = `translate(${x}px, ${y}px)`;
+            token.style.opacity = p.alive ? "1" : "0.2";
+        }
+
+        function updateStatusUI() {
+            const list = document.getElementById('player-status-list');
+            list.innerHTML = players.map(p => `
+                <div class="bg-slate-800 p-3 rounded-lg border-l-4 transition-all ${p.alive ? 'opacity-100 scale-100' : 'opacity-50 scale-95'}" style="border-color:${p.color}">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-bold text-sm">Player ${p.id}</span>
+                        <span class="text-xs font-mono">Pos: ${p.pos}</span>
+                    </div>
+                    <div class="flex gap-1">
+                        ${Array.from({ length: 3 }).map((_, i) => `<span class="health-heart">${i < p.hp ? '❤️' : '🖤'}</span>`).join('')}
+                    </div>
+                    ${p.activeEffect ? `<div class="text-[9px] text-blue-400 mt-1 font-bold">IF-ELSE ACTIVE: ${p.activeEffect.cond.toUpperCase()}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function preSelectPower(p) {
+            powerSelected = p;
+            document.getElementById('phase-powerup').classList.add('hidden');
+            document.getElementById('roll-btn').classList.remove('hidden');
+            log(`Player ${players[currentPlayerIndex].id} selected ${p.toUpperCase()}. Roll dice.`);
+        }
+
+        function rollDice() {
+            lastRoll = Math.floor(Math.random() * 6) + 1;
+            document.getElementById('die-display').innerText = lastRoll;
+            document.getElementById('roll-btn').classList.add('hidden');
+
+            if (powerSelected === 'math') {
+                document.getElementById('math-actions').classList.remove('hidden');
+            } else if (powerSelected === 'forloop') {
+                const val = tileValues[players[currentPlayerIndex].pos] || 1;
+                const loops = Math.min(val, 3);
+                document.getElementById('for-desc').innerText = `Tile Value is ${val}. You will loop your roll ${loops} times!`;
+                document.getElementById('for-actions').classList.remove('hidden');
+            } else if (powerSelected === 'ifelse') {
+                setupIfElseBuilder();
+            }
+        }
+
+        function setupIfElseBuilder() {
+            const builder = document.getElementById('ifelse-builder');
+            builder.classList.remove('hidden');
+
+            selectedCond = null; selectedPos = null; selectedNeg = null;
+
+            const conds = [...IF_CONDITIONS].sort(() => 0.5 - Math.random()).slice(0, 3);
+            const pos = [...POS_OUTPUTS].sort(() => 0.5 - Math.random()).slice(0, 2);
+            pos.push(POS_OUTPUTS.find(x => x.type === 'stay'));
+            const neg = [...NEG_OUTPUTS].sort(() => 0.5 - Math.random()).slice(0, 2);
+
+            const renderBlock = (list, items, type) => {
+                list.innerHTML = items.map(item => {
+                    const id = item.type || item.id || item;
+                    return `
+                        <div id="block-${type}-${id}" class="logic-block p-1 text-[10px] bg-slate-800 rounded mb-1" onclick="selectBlock('${type}', '${id}')">
+                            ${item.text || item}
+                        </div>
+                    `;
+                }).join('');
+            };
+
+            renderBlock(document.getElementById('if-cond-list'), conds, 'cond');
+            renderBlock(document.getElementById('if-pos-list'), pos, 'pos');
+            renderBlock(document.getElementById('if-neg-list'), neg, 'neg');
+        }
+
+        function selectBlock(type, id) {
+            // Unselect previous
+            const container = type === 'cond' ? 'if-cond-list' : type === 'pos' ? 'if-pos-list' : 'if-neg-list';
+            document.querySelectorAll(`#${container} .logic-block`).forEach(el => el.classList.remove('logic-selected'));
+
+            // Select new
+            document.getElementById(`block-${type}-${id}`).classList.add('logic-selected');
+
+            if (type === 'cond') selectedCond = id;
+            if (type === 'pos') selectedPos = id;
+            if (type === 'neg') selectedNeg = id;
+        }
+
+        async function executeMath(op) {
+            const p = players[currentPlayerIndex];
+            const tileVal = tileValues[p.pos] || 0;
+            let moveAmount = 0;
+            let msg = "";
+
+            if (op === '+') {
+                moveAmount = lastRoll + tileVal;
+                msg = `${lastRoll} + ${tileVal} = ${moveAmount}`;
+            }
+            if (op === '-') {
+                moveAmount = tileVal - lastRoll;
+                msg = `${tileVal} - ${lastRoll} = ${moveAmount}`;
+            }
+            if (op === '*') {
+                moveAmount = lastRoll * tileVal;
+                if (p.pos + moveAmount > 100) {
+                    moveAmount = 0;
+                    msg = `${lastRoll} * ${tileVal} = ${moveAmount} (Over 100! No move)`;
+                } else {
+                    msg = `${lastRoll} * ${tileVal} = ${moveAmount}`;
+                }
+            }
+            if (op === '/') {
+                moveAmount = Math.floor(tileVal / lastRoll);
+                msg = `${tileVal} / ${lastRoll} (Rounded Down) = ${moveAmount}`;
+            }
+
+            document.getElementById('math-actions').classList.add('hidden');
+            showModal("MATH RESULT", msg);
+            await resolveMovement(p, moveAmount);
+            endTurn();
+        }
+
+        async function executeForLoop() {
+            document.getElementById('for-actions').classList.add('hidden');
+            const p = players[currentPlayerIndex];
+            const loops = Math.min(tileValues[p.pos] || 1, 3);
+
+            for (let i = 0; i < loops; i++) {
+                log(`Iteration ${i + 1}/${loops}...`);
+                await resolveMovement(p, lastRoll, true); // true = loop move
+                await new Promise(r => setTimeout(r, 400));
+            }
+            await checkSnakeLadder(p); // Final tile check
+            endTurn();
+        }
+
+        async function executeIfElse() {
+            if (!selectedCond || !selectedPos || !selectedNeg) {
+                showModal("Syntax Error", "Your logic block is incomplete!");
+                return;
+            }
+            const p = players[currentPlayerIndex];
+            p.activeEffect = { cond: selectedCond, pos: selectedPos, neg: selectedNeg, triggered: false };
+            document.getElementById('ifelse-builder').classList.add('hidden');
+
+            log(`IF-ELSE set. Moving base roll: ${lastRoll}`);
+            await resolveMovement(p, lastRoll);
+            endTurn();
+        }
+
+        async function resolveMovement(p, amount, isLoop = false) {
+            if (isMoving) return;
+            isMoving = true;
+
+            const step = amount > 0 ? 1 : -1;
+            const absoluteAmount = Math.abs(amount);
+
+            for (let i = 0; i < absoluteAmount; i++) {
+                const next = p.pos + step;
+                if (next < 0 || next > 100) break;
+
+                // 1. Check PASSING
+                const passedOthers = players.filter(o => o.pos === next && o.id !== p.id && o.alive);
+                for (let other of passedOthers) {
+                    await triggerIfElse(p, "passed_me", other);
+                    await triggerIfElse(other, "passed_me", p);
+                }
+
+                p.pos = next;
+                syncToken(p.id);
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            // 2. Check STEPPING (Final Tile)
+            const targets = players.filter(o => o.pos === p.pos && o.id !== p.id && o.alive);
+            if (targets.length > 0) {
+                for (let victim of targets) {
+                    await triggerIfElse(p, "stepped_on_other", victim);
+                    await triggerIfElse(victim, "stepped_on_me", p);
+
+                    // Default kick if no one was moved away by triggers
+                    if (victim.pos === p.pos && p.alive && victim.alive) {
+                        log(`Collision! Player ${p.id} kicked Player ${victim.id} back to start.`);
+                        await kickToStart(victim);
+                    }
+                }
+            }
+
+            // 3. Final Tile Checks (only if not a loop mid-step)
+            if (!isLoop) await checkSnakeLadder(p);
+
+            updateStatusUI();
+            if (p.pos === 100) handleWin(p);
+
+            isMoving = false;
+        }
+
+        async function triggerIfElse(p, conditionId, targetPlayer) {
+            if (!p.activeEffect || p.activeEffect.cond !== conditionId || p.activeEffect.triggered) return;
+
+            p.activeEffect.triggered = true;
+            log(`CODE TRIGGERED: Player ${p.id} executed "THEN" branch.`);
+            await applyLogicOutput(p, p.activeEffect.pos, targetPlayer);
+        }
+
+        async function checkSnakeLadder(p) {
+            if (SNAKES[p.pos]) {
+                const triggered = await triggerIfElse(p, "snake", null);
+                if (!triggered) {
+                    log(`SNAKE! Sliding to ${SNAKES[p.pos]}`);
+                    p.pos = SNAKES[p.pos];
+                    syncToken(p.id);
+                    await new Promise(r => setTimeout(r, 500));
+                }
+            } else if (LADDERS[p.pos]) {
+                log(`LADDER! Climbing to ${LADDERS[p.pos]}`);
+                p.pos = LADDERS[p.pos];
+                syncToken(p.id);
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+
+        async function applyLogicOutput(p, outputType, target) {
+            switch (outputType) {
+                case 'move_rand': await resolveMovement(p, Math.floor(Math.random() * 10) + 1); break;
+                case 'move_dice': await resolveMovement(p, lastRoll); break;
+                case 'kick_rand': if (target) await resolveMovement(target, -(Math.floor(Math.random() * 10) + 1)); break;
+                case 'kick_start': if (target) await kickToStart(target); break;
+                case 'back_rand': await resolveMovement(p, -(Math.floor(Math.random() * 10) + 1)); break;
+                case 'back_dice': await resolveMovement(p, -lastRoll); break;
+                case 'back_start': await kickToStart(p); break;
+                case 'stay': break;
+            }
+        }
+
+        async function kickToStart(victim) {
+            victim.pos = 0;
+            victim.hp -= 1;
+            syncToken(victim.id);
+            if (victim.hp <= 0) {
+                victim.alive = false;
+                log(`PLAYER ${victim.id} HAS BEEN ELIMINATED!`);
+            }
+            updateStatusUI();
+            await new Promise(r => setTimeout(r, 400));
+        }
+
+        function endTurn() {
+            const p = players[currentPlayerIndex];
+            // If-Else didn't trigger? Run ELSE
+            if (p.activeEffect && !p.activeEffect.triggered) {
+                log(`IF condition failed. Player ${p.id} executed "ELSE" branch.`);
+                applyLogicOutput(p, p.activeEffect.neg, null);
+            }
+            p.activeEffect = null;
+
+            // Next player
+            let attempts = 0;
+            do {
+                currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+                attempts++;
+            } while (!players[currentPlayerIndex].alive && attempts < players.length);
+
+            if (!players[currentPlayerIndex].alive) {
+                showModal("GAME OVER", "No survivors remain.");
+            } else {
+                updateTurnUI();
+            }
+        }
+
+        function updateTurnUI() {
+            const p = players[currentPlayerIndex];
+            const display = document.getElementById('cur-player-display');
+            display.innerText = `PLAYER ${p.id}`;
+            display.style.color = p.color;
+            document.getElementById('phase-powerup').classList.remove('hidden');
+            document.getElementById('die-display').innerText = "?";
+        }
+
+        function handleWin(p) {
+            winnersCount++;
+            showModal("WINNER!", `Player ${p.id} finished Rank #${winnersCount}!`);
+            p.alive = false;
+            updateStatusUI();
+        }
+
+        function log(msg) {
+            const logEl = document.getElementById('game-log');
+            const entry = document.createElement('div');
+            entry.className = "py-0.5 border-b border-slate-900";
+            entry.innerHTML = `<span class="text-slate-500 mr-2">></span> ${msg}`;
+            logEl.prepend(entry);
+        }
+
+        function drawSVG() {
+            const svg = document.getElementById('svg-overlay');
+            const board = document.getElementById('board');
+            svg.innerHTML = '';
+            const bRect = board.getBoundingClientRect();
+            svg.setAttribute('viewBox', `0 0 ${bRect.width} ${bRect.height}`);
+
+            const drawLine = (f, t, color, isSnake) => {
+                const fEl = document.getElementById(`tile-${f}`);
+                const tEl = document.getElementById(`tile-${t}`);
+                if (!fEl || !tEl) return;
+                const fR = fEl.getBoundingClientRect();
+                const tR = tEl.getBoundingClientRect();
+                const x1 = fR.left - bRect.left + fR.width / 2;
+                const y1 = fR.top - bRect.top + fR.height / 2;
+                const x2 = tR.left - bRect.left + tR.width / 2;
+                const y2 = tR.top - bRect.top + tR.height / 2;
+
+                const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                l.setAttribute("x1", x1); l.setAttribute("y1", y1);
+                l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+                l.setAttribute("stroke", color);
+                l.setAttribute("stroke-width", isSnake ? "6" : "3");
+                l.setAttribute("stroke-linecap", "round");
+                l.setAttribute("opacity", "0.25");
+                if (!isSnake) l.setAttribute("stroke-dasharray", "5,5");
+                svg.appendChild(l);
+            };
+
+            Object.entries(SNAKES).forEach(([f, t]) => drawLine(f, t, '#ef4444', true));
+            Object.entries(LADDERS).forEach(([f, t]) => drawLine(f, t, '#10b981', false));
+        }
+
+        function closeModal() { document.getElementById('msg-modal').classList.add('hidden'); }
+        function showModal(title, body) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-body').innerText = body;
+            document.getElementById('msg-modal').classList.remove('hidden');
+        }
+        window.onresize = drawSVG;
+    </script>
+</body>
+
+</html>
