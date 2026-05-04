@@ -42,6 +42,16 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
         [room.code],
     );
 
+    // Listen to GameStarted
+    useEffect(() => {
+        const ch = channel();
+        if (!ch) return;
+
+        ch.listen('GameStarted', (e: any) => {
+            router.visit(`/rooms/${room.code}`); // Reload to render game
+        });
+    }, [channel, room.code]);
+
     // Subscribe to presence events (here/joining/leaving) via the channel
     useEffect(() => {
         const ch = channel();
@@ -75,8 +85,7 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
     };
 
     const startGame = () => {
-        // Phase 3 — will handle game start
-        console.log('Start game clicked');
+        router.post(`/rooms/${room.code}/start`);
     };
 
     const copyCode = useCallback(() => {
