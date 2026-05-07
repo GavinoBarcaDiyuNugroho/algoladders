@@ -1,0 +1,143 @@
+Snake and Ladder
+Algo Ladder
+: Modified Snake Ladder Game by Gavin
+Inspired By ThinkSquare
+GDD:
+Ruleset:
+Player Interaction:
+Player able to roll dice once every turn.
+Player able to pick choices (Math or Logic) and if they miss click player are allowed to repick their choices as long as it’s within the time frame.
+Player are not able to redo their dice roll if it’s already rolled.
+Each player are randomized on who rolled the dice first.
+Basic Rules for Math:
+After the player choose their power ups (math or Code Logic) They roll the dice (get the number).
+Backward movement is calculated from the player’s current position
+.
+Addition are not bound to anything (player will always be able to use addition at any condition)
+Substraction (if the substraction result between the the dice roll and the 
+tile
+ they were in are less then 0 then the player will move backwards. If the player already reached the starting point it will not go even further)
+Multiplication (If the multiplication between the dice roll and the 
+Tile
+ that they were in are more than the finished line (100) then the player will stay on that 
+Tile
+)
+Division (if the divided number between the dice roll and the 
+Tile
+ that they were in are not a whole number (decimal) then 
+it will round down
+)
+Every single interaction going to give a pop up telling the player what just happened (Multiplied you moved X amount of 
+Tile
+ or Oh no you move backward X amount of 
+Tile
+)
+How the math works the dice roll and 
+Tile
+ random number can do math
+ 
+Example: (dice roll: 6) 
+(user inserted math: 
+*
+)
+ 
+(
+Tile
+ Random Number: 
+2
+)
+ => 6 x 2 = 12
+. 
+The movement output would be “dice roll (math) the tile random number”
+Basic rule for Programming:
+For Loop Power ups:
+The player repeats movement based on the tile value (maximum 3 iterations). Each iteration moves the player by the dice roll amount and resolves interactions step-by-step.
+Flow:
+Player chooses For Loop
+Roll dice
+Loop count = min(tile value, 3)
+For each iteration:
+Move = dice value
+Resolve:
+passing players
+landing on tile
+snake/ladder
+Example: 
+Dice = 3
+, 
+Tile = 4 → capped to 3
+, 
+Loop:
+Step 1 → move to 23
+Step 2 → move to 26
+Step 3 → move to 29
+If Else Power ups: (positive negative reactions)
+The player can use if else condition to get away from a sticky situation and gain an advantage. 
+Available condition:
+If I step on the snake:
+If another player passed me
+ (walk passed me ex: I was at tile number 20. Player x at tile number 10 then he moved to 22)
+:
+If another player step on
+ the same tile as
+ me:
+If I step on another player
+ (the same tile)
+:
+Positive output:
+Move x amount of step (random number 1 – 10)
+Move x amount of step (dice roll number)
+Kick other player back x amount of step (random number 1 – 10)
+Kick back the player back to start (only available for the third condition (if another player step on me))
+Teleport to the nearest stair.
+Neutral output:
+Stay on my 
+tile
+Negative output:
+Move backward x amount of step (random number 1 – 10)
+Teleport to the nearest snake
+Move back to start
+Move backward x amount of step (dice roll number)
+ How it works:
+After the player choose their power ups (math or Code Logic) They roll the dice (get the number).
+Then it pauses the player going to choose between several code logic (if else, for loop, etc)
+After the player choose then the player move to the x amount of time. (the amount of the dice roll)
+ (if the player pick if else’s)
+.
+For if else it’s going to 
+be active until the player roll the dice again. If the condition are not met then the player going to get their consequences first (else condition active) the player will do whatever did they put on the else condition.
+If elses going to overwrite everything what the condition stated(example: if player land on snake then => (let say the player choose a positive condition) move x amount of tiles. (they do not fall from the snakes)
+If elses condition can only trigger once every turn
+Basic rules for the whole game
+:
+Each 
+tile
+ has
+ fixed
+ random number ranging from 0 to 10 and the total of moving 
+tile
+ is 100 (from starting line to finished
+). The starting Tile has the random number set to 0
+If a player step another player on the same tile they will sent the other player back to the start.
+For if elses player has to choose one either positive and neutral output and one
+ 
+negative output (one positive or neutral output and one negative output).
+For if elses player can put the output at whatever they 
+want
+ (on the if’s or the else’s)
+For if else’s They will get 3 random condition from the list above.
+For if else’s they will get 2 random positive output and 2 random negative output and all neutral output.
+Math determines movement based on the result of the operation, while If-Else uses dice value as base movement and modifies outcomes conditionally.
+Snake and ladder effects only trigger on the final iteration.
+Addition:
+There will be UI to tell everything that what will happened when the player pick choose and roll the dice and see it’s happens
+Winning and Losing:
+Player x reached the finish line
+Player has 3 amount of health if the fall back to the start 3 times they are out (get the fourth place and increment from the back if another player already get the fourth, three, etc)
+Game flow:
+Player chooses Math or If-Else
+Player rolls the dice
+Player then selects their action:
+Math: choose operator (+, -, ×, ÷)
+f-Else: construct condition and outputs
+The result is applied based on the chosen system

@@ -12,11 +12,13 @@ class Room extends Model
         'max_players',
         'status',
         'timer',
+        'timer_ends_at',
         'game_state',
     ];
 
     protected $casts = [
         'game_state' => 'array',
+        'timer_ends_at' => 'datetime',
     ];
 
     public function owner()

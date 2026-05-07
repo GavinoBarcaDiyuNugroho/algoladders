@@ -11,10 +11,15 @@ class RoomPlayer extends Model
         'user_id',
         'is_ready',
         'status',
+        'hp',
+        'active_effect',
+        'disconnected_at',
     ];
 
     protected $casts = [
         'is_ready' => 'boolean',
+        'active_effect' => 'array',
+        'disconnected_at' => 'datetime',
     ];
 
     public function room()

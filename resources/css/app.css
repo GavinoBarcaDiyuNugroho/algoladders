@@ -153,46 +153,126 @@
         box-shadow: -20px 30px 40px rgba(0,0,0,0.5);
     }
     
-    .isometric-tile {
-        position: relative;
-        transform-style: preserve-3d;
-        transition: transform 0.2s ease, filter 0.2s ease;
-    }
-
-    /* Create the 3D block thickness */
-    .isometric-tile::before {
-        content: '';
-        position: absolute;
-        top: 100%;
-        left: 0;
+    /* 3D Isometric Viewport & Board */
+    .game-viewport {
+        perspective: 2000px;
         width: 100%;
-        height: 12px;
-        background: inherit;
-        filter: brightness(0.6);
-        transform-origin: top;
-        transform: rotateX(-90deg);
-    }
-    .isometric-tile::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 100%;
-        width: 12px;
         height: 100%;
-        background: inherit;
-        filter: brightness(0.8);
-        transform-origin: left;
-        transform: rotateY(90deg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
     }
 
-    /* Counter-rotate tokens so they stand up */
-    .isometric-token {
-        transform: rotateZ(45deg) rotateX(-60deg) translateY(-20px);
-        transform-origin: bottom center;
-        filter: drop-shadow(-5px 10px 5px rgba(0,0,0,0.5));
+    .map-container {
+        position: relative;
+        width: 1000px;
+        height: 1000px;
+        transform: rotateX(50deg) rotateZ(-30deg);
+        transform-style: preserve-3d;
+        transition: transform 0.5s ease-out;
+    }
+
+    /* 3D Stone Slabs */
+    .slab {
+        position: absolute;
+        width: 70px;
+        height: 70px;
+        transform-style: preserve-3d;
+        transition: all 0.4s ease;
+    }
+
+    .slab-top {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: #ffffff;
+        border: 2px solid rgba(0, 0, 0, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        color: #333;
+        border-radius: 6px;
+        transform: translateZ(12px);
+        box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.05);
     }
     
-    .terrain-grass { background-color: #65a30d; border: 1px solid #4d7c0f; }
-    .terrain-mud { background-color: #92400e; border: 1px solid #78350f; }
-    .terrain-snow { background-color: #e2e8f0; border: 1px solid #cbd5e1; }
+    /* Rich Terrain Slab Colors */
+    .slab-side {
+        position: absolute;
+        width: 100%;
+        height: 12px;
+        background: #d1d1d1;
+        bottom: -6px;
+        transform: rotateX(-90deg) translateY(6px);
+        transform-origin: bottom;
+        border-radius: 0 0 6px 6px;
+        border: 1.5px solid rgba(0, 0, 0, 0.3);
+    }
+
+    .slab-top.terrain-grass { background: #4ade80; border-color: #166534; color: #14532d; }
+    .slab.terrain-grass .slab-side { background: #22c55e; }
+
+    .slab-top.terrain-mud { background: #f97316; border-color: #9a3412; color: #7c2d12; }
+    .slab.terrain-mud .slab-side { background: #ea580c; }
+
+    .slab-top.terrain-snow { background: #bae6fd; border-color: #0369a1; color: #0c4a6e; }
+    .slab.terrain-snow .slab-side { background: #7dd3fc; }
+
+    /* Floating Avatar Bubble */
+    .avatar-bubble {
+        position: absolute;
+        width: 44px;
+        height: 44px;
+        background: white;
+        border-radius: 8px;
+        padding: 2px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        z-index: 600;
+        transform: translateZ(80px) rotateX(-50deg) rotateZ(30deg);
+        transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .avatar-bubble::after {
+        content: '';
+        position: absolute;
+        bottom: -10px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-top: 10px solid white;
+    }
+
+    .avatar-img {
+        width: 100%;
+        height: 100%;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+    
+    /* PREMIUM TERRAINS (Line Get Rich Style) */
+    .terrain-grass { /* Premium Blue / Sapphire */
+        background: linear-gradient(135deg, #020617 0%, #1e3a8a 100%);
+        border-color: #3b82f6;
+    }
+    
+    .terrain-mud { /* Premium Gold / Amber */
+        background: linear-gradient(135deg, #451a03 0%, #b45309 100%);
+        border-color: #f59e0b;
+    }
+
+    .terrain-snow { /* Premium Purple / Amethyst */
+        background: linear-gradient(135deg, #1e013a 0%, #581c87 100%);
+        border-color: #a855f7;
+    }
 }

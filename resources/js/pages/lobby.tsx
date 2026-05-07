@@ -42,13 +42,29 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
         [room.code],
     );
 
-    // Listen to GameStarted
+    // Listen to GameStarted, RoomClosed, PlayerLeft, PlayerJoined
     useEffect(() => {
         const ch = channel();
         if (!ch) return;
 
         ch.listen('GameStarted', (e: any) => {
             router.visit(`/rooms/${room.code}`); // Reload to render game
+        });
+        
+        ch.listen('RoomClosed', (e: any) => {
+            router.visit('/menu');
+        });
+        
+        ch.listen('PlayerLeft', (e: any) => {
+            setPlayers(prev => prev.filter(p => p.user_id !== e.userId));
+        });
+        
+        ch.listen('PlayerJoined', (e: any) => {
+            setPlayers(prev => {
+                // Prevent duplicate if already exists
+                if (prev.find(p => p.id === e.player.id)) return prev;
+                return [...prev, e.player];
+            });
         });
     }, [channel, room.code]);
 
@@ -63,8 +79,6 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
 
         ch.joining((user: any) => {
             setOnlineUsers(prev => [...prev, user.id]);
-            // Reload room data to get the newly joined player
-            router.reload({ only: ['room'] });
         });
 
         ch.leaving((user: any) => {
@@ -88,6 +102,10 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
         router.post(`/rooms/${room.code}/start`);
     };
 
+    const handleLeave = () => {
+        router.post(`/rooms/${room.code}/leave`);
+    };
+
     const copyCode = useCallback(() => {
         navigator.clipboard.writeText(room.code);
         setCodeCopied(true);
@@ -104,6 +122,8 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
         'from-rose-400 to-red-500',
         'from-emerald-400 to-teal-500',
         'from-amber-400 to-orange-500',
+        'from-fuchsia-400 to-pink-500',
+        'from-sky-400 to-blue-500'
     ];
 
     return (
@@ -141,18 +161,26 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
                                     : 'Room is full! Ready up to start.'}
                             </p>
                         </div>
-                        <button 
-                            onClick={copyCode}
-                            className="flex items-center gap-3 bg-background px-6 py-3 rounded-xl border border-input hover:border-primary/50 transition-colors cursor-pointer group"
-                        >
-                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">ROOM CODE</span>
-                            <span className="text-2xl font-mono font-black text-secondary tracking-widest">{room.code}</span>
-                            {codeCopied ? (
-                                <Check className="w-5 h-5 text-green-500" />
-                            ) : (
-                                <Copy className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                            )}
-                        </button>
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={handleLeave}
+                                className="flex items-center gap-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white px-4 py-3 rounded-xl border border-red-500/20 transition-colors font-bold text-sm"
+                            >
+                                LEAVE ROOM 🚪
+                            </button>
+                            <button 
+                                onClick={copyCode}
+                                className="flex items-center gap-3 bg-background px-6 py-3 rounded-xl border border-input hover:border-primary/50 transition-colors cursor-pointer group"
+                            >
+                                <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">ROOM CODE</span>
+                                <span className="text-2xl font-mono font-black text-secondary tracking-widest">{room.code}</span>
+                                {codeCopied ? (
+                                    <Check className="w-5 h-5 text-green-500" />
+                                ) : (
+                                    <Copy className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                                )}
+                            </button>
+                        </div>
                     </motion.div>
 
                     {/* Players Grid */}

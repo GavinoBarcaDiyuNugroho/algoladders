@@ -15,6 +15,10 @@ class RoomController extends Controller
      */
     public function store(Request $request)
     {
+        $request->validate([
+            'max_players' => ['nullable', 'integer', 'min:2', 'max:6'],
+        ]);
+
         // Require authenticated user (or we could handle guests here)
         $user = $request->user();
 
@@ -27,7 +31,7 @@ class RoomController extends Controller
         $room = Room::create([
             'code' => $code,
             'owner_id' => $user->id,
-            'max_players' => 4,
+            'max_players' => $request->input('max_players', 4),
             'status' => 'lobby',
             'timer' => 0,
             'game_state' => [],
@@ -71,15 +75,69 @@ class RoomController extends Controller
         }
 
         // Add player if not already in the room
-        RoomPlayer::firstOrCreate([
+        $roomPlayer = RoomPlayer::firstOrCreate([
             'room_id' => $room->id,
             'user_id' => $user->id,
         ], [
             'is_ready' => false,
             'status' => 'connected',
         ]);
+        
+        $roomPlayer->load('user');
+        broadcast(new \App\Events\PlayerJoined($room->code, $roomPlayer));
 
         return redirect()->route('rooms.show', ['code' => $room->code]);
+    }
+
+    /**
+     * Leave the room.
+     */
+    public function leave(Request $request, $code)
+    {
+        $room = Room::where('code', $code)->firstOrFail();
+        $user = $request->user();
+
+        if ($room->status === 'in_progress') {
+            // In-game: Mark player as disconnected/dead instead of deleting room
+            $gameState = $room->game_state;
+            $allDead = true;
+            foreach ($gameState['players'] as &$p) {
+                if ($p['user_id'] === $user->id) {
+                    $p['alive'] = false; // They surrender
+                    $p['hp'] = 0;
+                }
+                if ($p['alive']) $allDead = false;
+            }
+            $gameState['log'][] = $user->name . ' surrendered and left the game.';
+            
+            $room->update(['game_state' => $gameState]);
+            broadcast(new \App\Events\GameStateUpdated($room->code, $gameState));
+            
+            // Still delete the RoomPlayer row to free them from the room
+            RoomPlayer::where('room_id', $room->id)->where('user_id', $user->id)->delete();
+            
+            // If everyone is dead/surrendered, close the room
+            if ($allDead) {
+                $room->delete();
+                broadcast(new \App\Events\RoomClosed($code));
+            }
+            
+            return redirect()->route('menu');
+        }
+
+        if ($room->owner_id === $user->id) {
+            // Owner leaves lobby -> close room entirely
+            $room->delete();
+            broadcast(new \App\Events\RoomClosed($code));
+            return redirect()->route('menu');
+        }
+
+        // Regular lobby leave
+        RoomPlayer::where('room_id', $room->id)->where('user_id', $user->id)->delete();
+        
+        broadcast(new \App\Events\PlayerLeft($code, $user->id));
+        
+        return redirect()->route('menu');
     }
 
     /**
@@ -142,7 +200,7 @@ class RoomController extends Controller
      */
     public function startGame(Request $request, $code)
     {
-        $room = Room::where('code', $code)->with('players')->firstOrFail();
+        $room = Room::where('code', $code)->with('players.user')->firstOrFail();
         $user = $request->user();
 
         if ($room->owner_id !== $user->id) {
@@ -181,6 +239,7 @@ class RoomController extends Controller
             $playersState[] = [
                 'id' => $player->id,
                 'user_id' => $player->user_id,
+                'name' => $player->user->name ?? 'Player ' . $player->id,
                 'pos' => 1,
                 'hp' => 3,
                 'alive' => true,
@@ -190,9 +249,32 @@ class RoomController extends Controller
             $index++;
         }
 
-        // Define snakes and ladders
-        $snakes = [98 => 20, 85 => 40, 70 => 30, 50 => 5, 42 => 12];
-        $ladders = [3 => 35, 10 => 45, 25 => 60, 55 => 80, 75 => 95];
+        // Generate 5 random snakes and 5 random ladders
+        $snakes = [];
+        $ladders = [];
+        $usedTiles = [1, 100]; // Can't start/end on first or last tile
+
+        // Ladders (Start lower, go higher)
+        while (count($ladders) < 5) {
+            $start = rand(2, 89);
+            $end = rand($start + 10, 99);
+            if (!in_array($start, $usedTiles) && !in_array($end, $usedTiles)) {
+                $ladders[$start] = $end;
+                $usedTiles[] = $start;
+                $usedTiles[] = $end;
+            }
+        }
+
+        // Snakes (Start higher, go lower)
+        while (count($snakes) < 5) {
+            $start = rand(11, 99);
+            $end = rand(2, $start - 10);
+            if (!in_array($start, $usedTiles) && !in_array($end, $usedTiles)) {
+                $snakes[$start] = $end;
+                $usedTiles[] = $start;
+                $usedTiles[] = $end;
+            }
+        }
 
         $gameState = [
             'currentPlayerIndex' => 0,

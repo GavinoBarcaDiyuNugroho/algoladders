@@ -1,13 +1,22 @@
-import { Head, Link, router } from '@inertiajs/react';
-import { motion } from 'motion/react';
-import { Plus, Users, Hash, ArrowLeft } from 'lucide-react';
-import { useState } from 'react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Plus, Users, Hash, ArrowLeft, XCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 export default function Menu() {
+    const { errors } = usePage().props as any;
     const [joinCode, setJoinCode] = useState('');
+    const [maxPlayers, setMaxPlayers] = useState('4');
+    const [showError, setShowError] = useState(false);
+
+    useEffect(() => {
+        if (errors && errors.code) {
+            setShowError(true);
+        }
+    }, [errors]);
 
     const handleCreateGame = () => {
-        router.post('/rooms');
+        router.post('/rooms', { max_players: parseInt(maxPlayers) });
     };
 
     const handleJoinGame = (e: React.FormEvent) => {
@@ -22,6 +31,26 @@ export default function Menu() {
             <Head title="Game Menu - Algo Ladders" />
             <div className="dark relative min-h-screen overflow-hidden bg-background text-foreground flex flex-col items-center justify-center p-6">
                 
+                <AnimatePresence>
+                    {showError && errors?.code && (
+                        <motion.div 
+                            initial={{ opacity: 0, y: -50 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -50 }}
+                            className="absolute top-6 z-50 bg-red-500/90 backdrop-blur-md text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border border-red-400"
+                        >
+                            <XCircle className="w-6 h-6" />
+                            <div className="flex flex-col">
+                                <span className="font-bold text-lg">Oops!</span>
+                                <span className="text-sm font-medium">{errors.code}</span>
+                            </div>
+                            <button onClick={() => setShowError(false)} className="ml-4 hover:bg-white/20 p-1 rounded-full transition">
+                                <XCircle className="w-5 h-5 opacity-70" />
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {/* Simple Animated Background */}
                 <div className="absolute inset-0 z-0 overflow-hidden opacity-10 pointer-events-none">
                     <motion.div 
@@ -41,7 +70,7 @@ export default function Menu() {
                 <div className="absolute top-6 left-6 z-20">
                     <Link href="/" className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors font-semibold bg-card/80 p-3 rounded-full shadow-sm backdrop-blur-md">
                         <ArrowLeft className="w-5 h-5" />
-                        <span className="sr-only sm:not-sr-only sm:pr-2">Back</span>
+                        <span className="sr-only sm:not-sr-only sm:pr-2">Back to Title</span>
                     </Link>
                 </div>
 
@@ -81,9 +110,25 @@ export default function Menu() {
                                 <h2 className="text-2xl font-bold">Create Room</h2>
                                 <p className="text-muted-foreground text-sm mt-1">Host a new game and invite players.</p>
                             </div>
+                            
+                            <div className="w-full mt-2 flex items-center gap-4 bg-background p-2 rounded-xl border border-input">
+                                <label className="text-sm font-bold text-muted-foreground ml-2">Players:</label>
+                                <select 
+                                    value={maxPlayers}
+                                    onChange={(e) => setMaxPlayers(e.target.value)}
+                                    className="flex-1 bg-transparent font-bold outline-none border-none focus:ring-0 text-center"
+                                >
+                                    <option value="2">2 Players</option>
+                                    <option value="3">3 Players</option>
+                                    <option value="4">4 Players</option>
+                                    <option value="5">5 Players</option>
+                                    <option value="6">6 Players</option>
+                                </select>
+                            </div>
+
                             <button 
                                 onClick={handleCreateGame}
-                                className="w-full mt-4 px-6 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all shadow-md hover:shadow-primary/50"
+                                className="w-full mt-2 px-6 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all shadow-md hover:shadow-primary/50"
                             >
                                 CREATE GAME
                             </button>

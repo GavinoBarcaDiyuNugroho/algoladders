@@ -17,6 +17,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/rooms/join', [RoomController::class, 'join'])->name('rooms.join');
     Route::get('/rooms/{code}', [RoomController::class, 'show'])->name('rooms.show');
     Route::post('/rooms/{code}/ready', [RoomController::class, 'toggleReady'])->name('rooms.ready');
+    Route::post('/rooms/{code}/leave', [RoomController::class, 'leave'])->name('rooms.leave');
     Route::post('/rooms/{code}/start', [RoomController::class, 'startGame'])->name('rooms.start');
 });
 

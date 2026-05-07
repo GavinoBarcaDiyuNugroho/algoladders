@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Adventure Path</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --bg-color: #312e2b;
+            --tile-white: #ffffff;
+            --tile-side: #d1d1d1;
+            --path-active: #81b64c;
+            --path-active-side: #5d8a35;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: white;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            margin: 0;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        .game-viewport {
+            perspective: 2000px;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle at center, #403d39 0%, #262421 100%);
+        }
+
+        .map-container {
+            position: relative;
+            width: 1000px;
+            height: 1000px;
+            transform: rotateX(50deg) rotateZ(-30deg);
+            transform-style: preserve-3d;
+            transition: transform 0.5s ease-out;
+        }
+
+        /* 3D Stone Slabs */
+        .slab {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            transform-style: preserve-3d;
+            transition: all 0.4s ease;
+        }
+
+        .slab-top {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: var(--tile-white);
+            border: 2px solid rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            color: #333;
+            border-radius: 6px;
+            transform: translateZ(12px);
+            box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .slab-side {
+            position: absolute;
+            width: 100%;
+            height: 12px;
+            background: var(--tile-side);
+            bottom: -6px;
+            transform: rotateX(-90deg) translateY(6px);
+            transform-origin: bottom;
+            border-radius: 0 0 6px 6px;
+            border: 1.5px solid rgba(0, 0, 0, 0.3);
+        }
+
+        .slab.visited .slab-top {
+            background: var(--path-active);
+            color: white;
+            border-color: #4a672d;
+        }
+
+        .slab.visited .slab-side {
+            background: var(--path-active-side);
+        }
+
+        .slab.visited .slab-top::after {
+            content: '✓';
+            position: absolute;
+            font-size: 1.5rem;
+            opacity: 0.8;
+        }
+
+        .slab.visited span {
+            display: none;
+        }
+
+        /* Floating Avatar Bubble */
+        .avatar-bubble {
+            position: absolute;
+            width: 44px;
+            height: 44px;
+            background: white;
+            border-radius: 8px;
+            padding: 2px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+            z-index: 600;
+            transform: translateZ(80px) rotateX(-50deg) rotateZ(30deg);
+            transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+        }
+
+        .avatar-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 10px solid white;
+        }
+
+        .avatar-img {
+            width: 100%;
+            height: 100%;
+            background: #ffa500;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        /* Asset Canvas */
+        #asset-layer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 100;
+            transform: translateZ(25px);
+            /* Position slightly above tiles */
+            overflow: visible;
+        }
+
+        /* UI */
+        .ui-panel {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #2b2926;
+            padding: 1.5rem 3rem;
+            border-radius: 1.5rem;
+            border: 1px solid #45423d;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 1000;
+            pointer-events: auto;
+        }
+
+        .dice-btn {
+            background: #81b64c;
+            color: white;
+            padding: 1rem 3rem;
+            font-size: 1.5rem;
+            font-weight: 800;
+            border-radius: 0.75rem;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 5px 0 #4a672d;
+            transition: all 0.1s;
+        }
+
+        .dice-btn:active {
+            transform: translateY(3px);
+            box-shadow: 0 2px 0 #4a672d;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="game-viewport">
+        <div class="map-container" id="map">
+            <div id="path-layer"></div>
+
+            <svg id="asset-layer" viewBox="0 0 1000 1000">
+                <defs>
+                    <!-- Serpentine Pattern -->
+                    <pattern id="snakeSkin" x="0" y="0" width="15" height="15" patternUnits="userSpaceOnUse">
+                        <rect width="15" height="15" fill="#2c5521" />
+                        <circle cx="7.5" cy="7.5" r="5" fill="#b0c929" />
+                    </pattern>
+                </defs>
+                <g id="ladders"></g>
+                <g id="snakes"></g>
+            </svg>
+
+            <!-- Player Avatar Bubble -->
+            <div id="playerAvatar" class="avatar-bubble">
+                <div class="avatar-img">👤</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui-panel">
+        <div id="diceVal" class="text-5xl mb-4">🎲</div>
+        <button class="dice-btn" id="rollBtn">ROLL DICE</button>
+        <div class="mt-4 text-gray-400 text-sm font-bold uppercase tracking-widest">
+            Square: <span id="sqNum" class="text-white">1</span> / 30
+        </div>
+    </div>
+
+    <script>
+        const mapLayer = document.getElementById('path-layer');
+        const rollBtn = document.getElementById('rollBtn');
+        const playerAvatar = document.getElementById('playerAvatar');
+        const laddersGroup = document.getElementById('ladders');
+        const snakesGroup = document.getElementById('snakes');
+
+        let currentPos = 1;
+        let isMoving = false;
+        const tileData = [];
+
+        // Jumps (Ladder: Up, Snake: Down)
+        const jumps = {
+            3: 15,  // Ladder
+            8: 2,   // Snake
+            12: 22, // Ladder
+            19: 10, // Snake
+            24: 29  // Ladder
+        };
+
+        function buildAdventurePath() {
+            const pathBlueprint = [
+                { x: 100, y: 100 }, { x: 180, y: 100 }, { x: 260, y: 100 }, { x: 340, y: 100 }, // Top
+                { x: 340, y: 180 }, { x: 340, y: 260 }, // Down
+                { x: 260, y: 260 }, { x: 180, y: 260 }, { x: 100, y: 260 }, // Left
+                { x: 100, y: 340 }, { x: 100, y: 420 }, // Down
+                { x: 180, y: 420 }, { x: 260, y: 420 }, { x: 340, y: 420 }, { x: 420, y: 420 }, // Right
+                { x: 500, y: 420 }, { x: 500, y: 340 }, { x: 500, y: 260 }, { x: 580, y: 260 }, // Zig zag
+                { x: 660, y: 260 }, { x: 660, y: 340 }, { x: 660, y: 420 }, { x: 740, y: 420 },
+                { x: 820, y: 420 }, { x: 820, y: 500 }, { x: 820, y: 580 }, { x: 740, y: 580 },
+                { x: 660, y: 580 }, { x: 580, y: 580 }, { x: 500, y: 580 } // End
+            ];
+
+            pathBlueprint.forEach((coord, i) => {
+                const idx = i + 1;
+                tileData[idx] = coord;
+
+                const el = document.createElement('div');
+                el.className = 'slab';
+                el.id = `slab-${idx}`;
+                el.style.left = coord.x + 'px';
+                el.style.top = coord.y + 'px';
+                el.innerHTML = `
+                    <div class="slab-side"></div>
+                    <div class="slab-top"><span>${idx}</span></div>
+                `;
+                mapLayer.appendChild(el);
+            });
+
+            moveAvatar(1);
+            drawAssets();
+        }
+
+        function drawAssets() {
+            Object.entries(jumps).forEach(([start, end]) => {
+                const s = tileData[start];
+                const e = tileData[end];
+                // Offset to center of 70x70 tile
+                const offset = 35;
+                if (parseInt(end) > parseInt(start)) {
+                    drawWoodenLadder(s.x + offset, s.y + offset, e.x + offset, e.y + offset);
+                } else {
+                    drawWavySnake(s.x + offset, s.y + offset, e.x + offset, e.y + offset);
+                }
+            });
+        }
+
+        function drawWoodenLadder(x1, y1, x2, y2) {
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            const dist = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+            const railOffset = 16;
+            const ox = Math.cos(angle + Math.PI / 2) * railOffset;
+            const oy = Math.sin(angle + Math.PI / 2) * railOffset;
+
+            // Rails
+            const r1 = createSVGLine(x1 + ox, y1 + oy, x2 + ox, y2 + oy, "#8b5a2b", 7);
+            const r2 = createSVGLine(x1 - ox, y1 - oy, x2 - ox, y2 - oy, "#8b5a2b", 7);
+            g.appendChild(r1); g.appendChild(r2);
+
+            // Rungs
+            const steps = Math.floor(dist / 22);
+            for (let i = 1; i < steps; i++) {
+                const t = i / steps;
+                const rx = x1 + (x2 - x1) * t;
+                const ry = y1 + (y2 - y1) * t;
+                g.appendChild(createSVGLine(rx + ox, ry + oy, rx - ox, ry - oy, "#a67c52", 5));
+            }
+            laddersGroup.appendChild(g);
+        }
+
+        function drawWavySnake(x1, y1, x2, y2) {
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+            // Calculate a wavy path using multiple control points
+            const dist = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            const segments = 4;
+            const amplitude = 35;
+
+            let d = `M ${x1} ${y1}`;
+            for (let i = 1; i <= segments; i++) {
+                const t = i / segments;
+                const prevT = (i - 1) / segments;
+
+                const px = x1 + (x2 - x1) * t;
+                const py = y1 + (y2 - y1) * t;
+
+                // Normal vector for waviness
+                const nx = Math.cos(angle + Math.PI / 2);
+                const ny = Math.sin(angle + Math.PI / 2);
+
+                const waveOffset = (i % 2 === 0 ? 1 : -1) * amplitude;
+                const midX = x1 + (x2 - x1) * (t - 0.125) + nx * waveOffset;
+                const midY = y1 + (y2 - y1) * (t - 0.125) + ny * waveOffset;
+
+                d += ` Q ${midX} ${midY} ${px} ${py}`;
+            }
+
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", d);
+            path.setAttribute("stroke", "url(#snakeSkin)");
+            path.setAttribute("stroke-width", "22");
+            path.setAttribute("fill", "none");
+            path.setAttribute("stroke-linecap", "round");
+            g.appendChild(path);
+
+            // Snake Head (at the start, which is high position)
+            const head = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+            head.setAttribute("cx", x1);
+            head.setAttribute("cy", y1);
+            head.setAttribute("rx", "16");
+            head.setAttribute("ry", "13");
+            head.setAttribute("fill", "#2c5521");
+            head.setAttribute("transform", `rotate(${angle * 180 / Math.PI + 180}, ${x1}, ${y1})`);
+            g.appendChild(head);
+
+            // Eyes
+            const eye1 = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            eye1.setAttribute("cx", x1 - 6); eye1.setAttribute("cy", y1 - 4); eye1.setAttribute("r", "2");
+            eye1.setAttribute("fill", "white");
+            eye1.setAttribute("transform", `rotate(${angle * 180 / Math.PI + 180}, ${x1}, ${y1})`);
+            g.appendChild(eye1);
+
+            snakesGroup.appendChild(g);
+        }
+
+        function createSVGLine(x1, y1, x2, y2, color, width) {
+            const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            l.setAttribute("x1", x1); l.setAttribute("y1", y1);
+            l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+            l.setAttribute("stroke", color); l.setAttribute("stroke-width", width);
+            l.setAttribute("stroke-linecap", "round");
+            return l;
+        }
+
+        function moveAvatar(pos) {
+            const coord = tileData[pos];
+            // Center the avatar on the tile
+            playerAvatar.style.left = (coord.x + 13) + 'px';
+            playerAvatar.style.top = (coord.y + 13) + 'px';
+
+            document.getElementById('sqNum').innerText = pos;
+            // Visual path update
+            for (let i = 1; i <= pos; i++) {
+                const slab = document.getElementById(`slab-${i}`);
+                if (slab) slab.classList.add('visited');
+            }
+        }
+
+        async function playTurn(steps) {
+            isMoving = true;
+            rollBtn.disabled = true;
+
+            for (let i = 0; i < steps; i++) {
+                if (currentPos < tileData.length - 1) {
+                    currentPos++;
+                    moveAvatar(currentPos);
+                    await new Promise(r => setTimeout(r, 300));
+                }
+            }
+
+            // Check for jump
+            if (jumps[currentPos]) {
+                await new Promise(r => setTimeout(r, 600));
+                currentPos = jumps[currentPos];
+                moveAvatar(currentPos);
+            }
+
+            isMoving = false;
+            rollBtn.disabled = false;
+        }
+
+        rollBtn.addEventListener('click', () => {
+            if (isMoving) return;
+            const roll = Math.floor(Math.random() * 6) + 1;
+            document.getElementById('diceVal').innerText = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'][roll - 1];
+            playTurn(roll);
+        });
+
+        window.onload = buildAdventurePath;
+
+        // Interaction
+        document.addEventListener('mousemove', (e) => {
+            const x = (window.innerWidth / 2 - e.pageX) / 120;
+            const y = (window.innerHeight / 2 - e.pageY) / 120;
+            document.getElementById('map').style.transform = `rotateX(${50 + y}deg) rotateZ(${-30 + x}deg)`;
+        });
+    </script>
+</body>
+
+</html>
