@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import { echo } from '@laravel/echo-react';
@@ -6,14 +6,16 @@ import { echo } from '@laravel/echo-react';
 interface Player {
     id: number;
     user_id: number;
+    name?: string;
     pos: number;
     hp: number;
     alive: boolean;
     color: string;
-    user?: {
-        name: string;
-    };
+    activeEffect?: any;
+    user?: { name: string };
 }
+
+interface IfElseOption { id: string; text: string; }
 
 interface GameState {
     currentPlayerIndex: number;
@@ -23,6 +25,17 @@ interface GameState {
     snakes: Record<number, number>;
     ladders: Record<number, number>;
     log: string[];
+    phase: 'select' | 'roll' | 'action';
+    selectedPower: 'math' | 'ifelse' | 'forloop' | null;
+    lastRoll: number | null;
+    ifelseOptions: {
+        conditions: IfElseOption[];
+        positive: IfElseOption[];
+        negative: IfElseOption[];
+        neutral: IfElseOption[];
+    } | null;
+    status: 'playing' | 'finished';
+    winner: string | null;
 }
 
 interface Room {
@@ -46,6 +59,12 @@ function createSeededRandom(seed: number) {
 
 export default function Game({ room, currentUser, isOwner }: { room: Room, currentUser: any, isOwner: boolean }) {
     const [gameState, setGameState] = useState<GameState>(room.game_state);
+    const [loading, setLoading] = useState(false);
+    
+    // If-Else builder local state
+    const [selectedCondition, setSelectedCondition] = useState<string | null>(null);
+    const [selectedThen, setSelectedThen] = useState<string | null>(null);
+    const [selectedElse, setSelectedElse] = useState<string | null>(null);
     
     // Map Panning State
     const [pan, setPan] = useState({ x: 0, y: -500 });
@@ -193,16 +212,21 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         return coords;
     }, [room.id]);
 
-    // Auto-pan to current player when turn changes
+    // Auto-pan to current player only when the TURN actually changes
+    const prevTurnIdx = useRef(gameState.currentPlayerIndex);
     useEffect(() => {
         if (!gameState || !gameState.players) return;
+        // Only auto-pan when the turn index actually changed
+        if (prevTurnIdx.current === gameState.currentPlayerIndex) return;
+        prevTurnIdx.current = gameState.currentPlayerIndex;
+
         const cp = gameState.players[gameState.currentPlayerIndex];
         if (cp && tileCoordinates && tileCoordinates[cp.pos]) {
             const coord = tileCoordinates[cp.pos];
-            // Center roughly on the player's current tile
+            // Center on the player's tile using actual window dimensions
             setPan({
-                x: -coord.x + 400,
-                y: -coord.y + 100
+                x: -coord.x + Math.round(window.innerWidth / 2),
+                y: -coord.y + Math.round(window.innerHeight / 3)
             });
         }
     }, [gameState.currentPlayerIndex, tileCoordinates]);
@@ -398,6 +422,9 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                             </span>
                                         ))}
                                     </div>
+                                    {p.activeEffect && (
+                                        <div className="text-[9px] text-blue-400 mt-1 font-bold">⚡ IF-ELSE ACTIVE</div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -442,49 +469,127 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                     </div>
                 </div>
 
-                {/* Bottom Panel: Actions (from prototype UI panel) */}
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+                {/* Game End Overlay */}
+                {gameState.status === 'finished' && (
+                    <div className="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center">
+                        <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#2b2926] p-10 rounded-3xl border border-[#45423d] text-center max-w-md">
+                            <div className="text-6xl mb-4">🏆</div>
+                            <h2 className="text-3xl font-black text-white mb-2">{gameState.winner ? `${gameState.winner} Wins!` : 'No Winner!'}</h2>
+                            <p className="text-gray-400 mb-6">The game has ended.</p>
+                            <button onClick={() => router.visit('/menu')} className="bg-[#81b64c] text-white px-8 py-3 font-bold rounded-xl w-full">RETURN TO MENU</button>
+                        </motion.div>
+                    </div>
+                )}
+
+                {/* Bottom Panel */}
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto max-w-lg w-full px-4">
                     <div className="bg-[#2b2926] p-6 rounded-3xl border border-[#45423d] shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex flex-col items-center">
                         <div className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">
                             Current Turn: <span style={{ color: currentPlayer?.color }}>{currentPlayer?.name}</span>
+                            {gameState.lastRoll && <span className="ml-3 text-yellow-400">🎲 {gameState.lastRoll}</span>}
                         </div>
                         
-                        {isMyTurn ? (
-                            <div className="w-full flex flex-col items-center gap-4 mt-2">
-                                <div className="flex gap-2">
-                                    <button className="bg-[#3d3a36] hover:bg-[#81b64c] p-3 rounded-xl flex flex-col items-center transition-colors border border-[#45423d]">
-                                        <span className="text-xl mb-1">➕</span>
-                                        <span className="text-[10px] font-bold text-white">MATH</span>
+                        {isMyTurn && gameState.status === 'playing' ? (
+                            <div className="w-full flex flex-col items-center gap-3 mt-2">
+                                
+                                {/* PHASE: SELECT POWER */}
+                                {gameState.phase === 'select' && (
+                                    <div className="flex gap-2">
+                                        {(['math', 'ifelse', 'forloop'] as const).map(p => (
+                                            <button key={p} disabled={loading} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/select-power`, { power: p }, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                                className="bg-[#3d3a36] hover:bg-[#81b64c] p-3 rounded-xl flex flex-col items-center transition-colors border border-[#45423d] min-w-[70px] disabled:opacity-50">
+                                                <span className="text-xl mb-1">{p === 'math' ? '➕' : p === 'ifelse' ? '🌿' : '🔁'}</span>
+                                                <span className="text-[10px] font-bold text-white">{p === 'math' ? 'MATH' : p === 'ifelse' ? 'IF-ELSE' : 'FOR'}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* PHASE: ROLL DICE */}
+                                {gameState.phase === 'roll' && (
+                                    <button disabled={loading} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/roll`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                        className="bg-[#81b64c] text-white px-12 py-4 font-black text-xl rounded-xl shadow-[0_5px_0_#4a672d] active:shadow-[0_2px_0_#4a672d] active:translate-y-[3px] transition-all tracking-widest w-full disabled:opacity-50">
+                                        🎲 ROLL DICE
                                     </button>
-                                    <button className="bg-[#3d3a36] hover:bg-[#81b64c] p-3 rounded-xl flex flex-col items-center transition-colors border border-[#45423d]">
-                                        <span className="text-xl mb-1">🌿</span>
-                                        <span className="text-[10px] font-bold text-white">IF-ELSE</span>
-                                    </button>
-                                    <button className="bg-[#3d3a36] hover:bg-[#81b64c] p-3 rounded-xl flex flex-col items-center transition-colors border border-[#45423d]">
-                                        <span className="text-xl mb-1">🔁</span>
-                                        <span className="text-[10px] font-bold text-white">FOR</span>
-                                    </button>
-                                </div>
-                                <button className="bg-[#81b64c] text-white px-12 py-4 font-black text-xl rounded-xl shadow-[0_5px_0_#4a672d] active:shadow-[0_2px_0_#4a672d] active:translate-y-[3px] transition-all tracking-widest mt-2 w-full">
-                                    ROLL DICE
-                                </button>
+                                )}
+
+                                {/* PHASE: ACTION - MATH */}
+                                {gameState.phase === 'action' && gameState.selectedPower === 'math' && (
+                                    <div className="w-full">
+                                        <p className="text-gray-400 text-xs text-center mb-2">Dice: {gameState.lastRoll} • Tile Value: {gameState.tileValues[currentPlayer?.pos || 0] || 0}</p>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            {['+', '-', '*', '/'].map(op => (
+                                                <button key={op} disabled={loading} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, { operator: op }, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                                    className="bg-blue-600 hover:bg-blue-500 p-3 rounded-xl font-black text-2xl text-white transition-colors disabled:opacity-50">
+                                                    {op === '*' ? '×' : op === '/' ? '÷' : op}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* PHASE: ACTION - FOR LOOP */}
+                                {gameState.phase === 'action' && gameState.selectedPower === 'forloop' && (
+                                    <div className="w-full text-center">
+                                        <p className="text-gray-300 text-sm mb-3">Loop {Math.min(gameState.tileValues[currentPlayer?.pos || 0] || 1, 3)}× moving {gameState.lastRoll} tiles each</p>
+                                        <button disabled={loading} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                            className="bg-amber-600 hover:bg-amber-500 text-white px-8 py-3 font-bold rounded-xl w-full disabled:opacity-50">
+                                            🔁 START LOOP
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* PHASE: ACTION - IF-ELSE BUILDER */}
+                                {gameState.phase === 'action' && gameState.selectedPower === 'ifelse' && gameState.ifelseOptions && (
+                                    <div className="w-full space-y-3 max-h-[300px] overflow-y-auto">
+                                        <div className="bg-[#1e1c1a] p-3 rounded-xl border border-[#45423d]">
+                                            <p className="text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-2">1. IF Condition</p>
+                                            {gameState.ifelseOptions.conditions.map(c => (
+                                                <button key={c.id} onClick={() => setSelectedCondition(c.id)}
+                                                    className={`w-full text-left p-2 rounded-lg text-xs mb-1 transition-colors ${selectedCondition === c.id ? 'bg-blue-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
+                                                    {c.text}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="bg-[#1e1c1a] p-3 rounded-xl border border-[#45423d]">
+                                            <p className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest mb-2">2. THEN Output</p>
+                                            {[...gameState.ifelseOptions.positive, ...gameState.ifelseOptions.neutral].map(o => (
+                                                <button key={o.id} onClick={() => setSelectedThen(o.id)}
+                                                    className={`w-full text-left p-2 rounded-lg text-xs mb-1 transition-colors ${selectedThen === o.id ? 'bg-emerald-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
+                                                    {o.text}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="bg-[#1e1c1a] p-3 rounded-xl border border-[#45423d]">
+                                            <p className="text-rose-400 text-[10px] font-bold uppercase tracking-widest mb-2">3. ELSE Output</p>
+                                            {[...gameState.ifelseOptions.negative, ...gameState.ifelseOptions.neutral].map(o => (
+                                                <button key={o.id} onClick={() => setSelectedElse(o.id)}
+                                                    className={`w-full text-left p-2 rounded-lg text-xs mb-1 transition-colors ${selectedElse === o.id ? 'bg-rose-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
+                                                    {o.text}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <button disabled={loading || !selectedCondition || !selectedThen || !selectedElse}
+                                            onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, { condition: selectedCondition, then_output: selectedThen, else_output: selectedElse }, { preserveState: true, onFinish: () => { setLoading(false); setSelectedCondition(null); setSelectedThen(null); setSelectedElse(null); } }); }}
+                                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3 font-bold rounded-xl w-full disabled:opacity-50">
+                                            COMPILE & RUN
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                        ) : (
-                            <div className="w-full text-center mt-6">
+                        ) : gameState.status === 'playing' ? (
+                            <div className="w-full text-center mt-4">
                                 <p className="text-gray-400 animate-pulse font-bold text-sm tracking-widest">WAITING...</p>
                             </div>
-                        )}
+                        ) : null}
                         
-                        <button 
-                            onClick={() => {
-                                if (confirm('Are you sure you want to surrender and leave the game?')) {
-                                    import('@inertiajs/react').then(({ router }) => router.post(`/rooms/${room.code}/leave`));
-                                }
-                            }}
-                            className="text-[#ef4444] hover:text-[#f87171] font-bold text-xs flex items-center gap-2 mt-6 transition-colors"
-                        >
-                            <span>🏳️</span> SURRENDER
-                        </button>
+                        {gameState.status === 'playing' && (
+                            <button 
+                                onClick={() => { if (confirm('Are you sure you want to surrender?')) router.post(`/rooms/${room.code}/leave`); }}
+                                className="text-[#ef4444] hover:text-[#f87171] font-bold text-xs flex items-center gap-2 mt-4 transition-colors">
+                                🏳️ SURRENDER
+                            </button>
+                        )}
                     </div>
                 </div>
 

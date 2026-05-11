@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 use App\Http\Controllers\RoomController;
+use App\Http\Controllers\GameController;
 
 Route::inertia('/', 'welcome', [
     'canRegister' => Features::enabled(Features::registration()),
@@ -19,6 +20,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/rooms/{code}/ready', [RoomController::class, 'toggleReady'])->name('rooms.ready');
     Route::post('/rooms/{code}/leave', [RoomController::class, 'leave'])->name('rooms.leave');
     Route::post('/rooms/{code}/start', [RoomController::class, 'startGame'])->name('rooms.start');
+
+    // In-game actions
+    Route::post('/rooms/{code}/select-power', [GameController::class, 'selectPower'])->name('game.selectPower');
+    Route::post('/rooms/{code}/roll', [GameController::class, 'rollDice'])->name('game.roll');
+    Route::post('/rooms/{code}/action', [GameController::class, 'executeAction'])->name('game.action');
 });
 
 require __DIR__.'/settings.php';

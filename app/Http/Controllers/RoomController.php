@@ -283,12 +283,25 @@ class RoomController extends Controller
             'players' => $playersState,
             'snakes' => $snakes,
             'ladders' => $ladders,
-            'log' => ['Game started!']
+            'log' => ['Game started!'],
+            'phase' => 'select',       // select, roll, action
+            'selectedPower' => null,    // math, ifelse, forloop
+            'lastRoll' => null,
+            'ifelseOptions' => null,
+            'status' => 'playing',      // playing, finished
+            'winner' => null,
         ];
+
+        // Set timer_ends_at if owner configured a timer
+        $timerEndsAt = null;
+        if ($room->timer && $room->timer > 0) {
+            $timerEndsAt = now()->addMinutes($room->timer);
+        }
 
         $room->update([
             'status' => 'in_progress',
             'game_state' => $gameState,
+            'timer_ends_at' => $timerEndsAt,
         ]);
 
         broadcast(new \App\Events\GameStarted($room->code));
