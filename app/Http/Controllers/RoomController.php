@@ -207,8 +207,21 @@ class RoomController extends Controller
             return back()->withErrors(['code' => 'Only the owner can start the game.']);
         }
 
-        if ($room->status !== 'lobby') {
-            return back()->withErrors(['code' => 'Game is already started.']);
+        if (!in_array($room->status, ['lobby', 'finished'])) {
+            return back()->withErrors(['code' => 'Game is already in progress.']);
+        }
+
+        // If restarting from a finished game, reset all players first
+        if ($room->status === 'finished') {
+            $room->players()->update([
+                'is_ready' => false,
+                'hp' => 3,
+                'active_effect' => null,
+                'disconnected_at' => null,
+            ]);
+            $room->update(['status' => 'lobby', 'game_state' => null, 'timer_ends_at' => null]);
+            // Reload players after reset
+            $room->load('players.user');
         }
 
         // Ensure all other players are ready
@@ -229,6 +242,8 @@ class RoomController extends Controller
             $tileValues[$i] = rand(0, 10);
             $tileTerrains[$i] = $terrains[array_rand($terrains)];
         }
+        // START tile always has value 0 to prevent multiplication abuse
+        $tileValues[1] = 0;
 
         // Initialize players
         $playersState = [];
@@ -290,6 +305,7 @@ class RoomController extends Controller
             'ifelseOptions' => null,
             'status' => 'playing',      // playing, finished
             'winner' => null,
+            'rankings' => [],
         ];
 
         // Set timer_ends_at if owner configured a timer

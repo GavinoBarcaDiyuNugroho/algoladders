@@ -445,9 +445,11 @@ class GameController extends Controller
         $numPlayers = count($gs['players']);
         $nextIdx = ($gs['currentPlayerIndex'] + 1) % $numPlayers;
 
-        // Skip dead players
+        // Skip dead or already-finished players
         $attempts = 0;
-        while (!$gs['players'][$nextIdx]['alive'] && $attempts < $numPlayers) {
+        while ($attempts < $numPlayers) {
+            $p = $gs['players'][$nextIdx];
+            if ($p['alive'] && !($p['finished'] ?? false)) break;
             $nextIdx = ($nextIdx + 1) % $numPlayers;
             $attempts++;
         }
@@ -462,23 +464,50 @@ class GameController extends Controller
 
     private function checkWinCondition(array $gs, Room $room): array
     {
-        // Check if current player reached tile 100
-        foreach ($gs['players'] as &$p) {
-            if ($p['alive'] && $p['pos'] >= 100) {
-                $gs['status'] = 'finished';
-                $gs['winner'] = $p['name'];
-                $gs['log'][] = "🏆 {$p['name']} reached the FINISH LINE! WINNER!";
-                $room->update(['status' => 'finished']);
-                return $gs;
+        // Initialize rankings array if not present
+        if (!isset($gs['rankings'])) {
+            $gs['rankings'] = [];
+        }
+
+        // Check if any player just reached tile 100 — mark them as finished with a rank
+        foreach ($gs['players'] as $i => &$p) {
+            if ($p['alive'] && !($p['finished'] ?? false) && $p['pos'] >= 100) {
+                $place = count($gs['rankings']) + 1;
+                $p['finished'] = true;
+                $p['place'] = $place;
+                $gs['rankings'][] = ['name' => $p['name'], 'place' => $place];
+
+                $suffix = match($place) { 1 => 'st', 2 => 'nd', 3 => 'rd', default => 'th' };
+                $gs['log'][] = "🏁 {$p['name']} crossed the FINISH LINE in {$place}{$suffix} place!";
             }
         }
 
-        // Check if only one player remains
+        // Count players still racing (alive AND not finished)
+        $stillRacing = array_filter($gs['players'], fn($p) => $p['alive'] && !($p['finished'] ?? false));
+
+        // Game ends when no one is left racing
+        if (count($stillRacing) === 0) {
+            // Add any alive-but-unfinished players (eliminated mid-race) with their position
+            $gs['status'] = 'finished';
+            $gs['winner'] = $gs['rankings'][0]['name'] ?? null;
+            $gs['log'][] = "🏆 Game Over! " . ($gs['winner'] ? $gs['winner'] . " wins!" : "No winner!");
+            $room->update(['status' => 'finished']);
+            return $gs;
+        }
+
+        // If only 1 player is still racing and at least 1 has already finished, auto-finish them as last
+        if (count($stillRacing) === 1 && count($gs['rankings']) > 0) {
+            $lastPlayer = array_values($stillRacing)[0];
+            // Let them keep playing — they can still finish naturally
+        }
+
+        // Check if only one alive player remains (everyone else eliminated/surrendered, none finished yet)
         $alivePlayers = array_filter($gs['players'], fn($p) => $p['alive']);
-        if (count($alivePlayers) === 1) {
+        if (count($alivePlayers) === 1 && count($gs['rankings']) === 0) {
             $winner = array_values($alivePlayers)[0];
             $gs['status'] = 'finished';
             $gs['winner'] = $winner['name'];
+            $gs['rankings'][] = ['name' => $winner['name'], 'place' => 1];
             $gs['log'][] = "🏆 {$winner['name']} is the last player standing! WINNER!";
             $room->update(['status' => 'finished']);
             return $gs;
@@ -486,24 +515,24 @@ class GameController extends Controller
 
         if (count($alivePlayers) === 0) {
             $gs['status'] = 'finished';
-            $gs['winner'] = null;
-            $gs['log'][] = "All players eliminated. No winner!";
+            $gs['winner'] = $gs['rankings'][0]['name'] ?? null;
+            $gs['log'][] = "All remaining players eliminated. Game Over!";
             $room->update(['status' => 'finished']);
+            return $gs;
         }
 
         // Timer check
         if ($room->timer_ends_at && now()->gte($room->timer_ends_at)) {
-            $closest = null;
-            $closestPos = 0;
-            foreach ($gs['players'] as &$p) {
-                if ($p['alive'] && $p['pos'] > $closestPos) {
-                    $closestPos = $p['pos'];
-                    $closest = $p['name'];
-                }
+            // Rank remaining players by position
+            $remaining = array_filter($gs['players'], fn($p) => $p['alive'] && !($p['finished'] ?? false));
+            usort($remaining, fn($a, $b) => $b['pos'] - $a['pos']);
+            foreach ($remaining as $rp) {
+                $place = count($gs['rankings']) + 1;
+                $gs['rankings'][] = ['name' => $rp['name'], 'place' => $place];
             }
             $gs['status'] = 'finished';
-            $gs['winner'] = $closest;
-            $gs['log'][] = "⏰ Time's up! {$closest} was closest to the finish. WINNER!";
+            $gs['winner'] = $gs['rankings'][0]['name'] ?? null;
+            $gs['log'][] = "⏰ Time's up! Game Over!";
             $room->update(['status' => 'finished']);
         }
 

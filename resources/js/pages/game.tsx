@@ -12,6 +12,8 @@ interface Player {
     alive: boolean;
     color: string;
     activeEffect?: any;
+    finished?: boolean;
+    place?: number;
     user?: { name: string };
 }
 
@@ -36,6 +38,7 @@ interface GameState {
     } | null;
     status: 'playing' | 'finished';
     winner: string | null;
+    rankings: { name: string; place: number }[];
 }
 
 interface Room {
@@ -212,24 +215,46 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         return coords;
     }, [room.id]);
 
-    // Auto-pan to current player only when the TURN actually changes
+    // Center camera on a tile by reading its actual rendered screen position
+    const panToTile = (pos: number) => {
+        // Use requestAnimationFrame to ensure DOM has updated
+        requestAnimationFrame(() => {
+            const el = document.getElementById(`slab-${pos}`);
+            if (!el) return;
+
+            const rect = el.getBoundingClientRect();
+            const tileCenterX = rect.left + rect.width / 2;
+            const tileCenterY = rect.top + rect.height / 2;
+
+            const screenCenterX = window.innerWidth / 2;
+            const screenCenterY = window.innerHeight / 2;
+
+            // Adjust pan by the difference between tile center and screen center
+            setPan(prev => ({
+                x: prev.x + (screenCenterX - tileCenterX),
+                y: prev.y + (screenCenterY - tileCenterY)
+            }));
+        });
+    };
+
+    // Auto-pan when the turn changes OR when the current player's position changes
     const prevTurnIdx = useRef(gameState.currentPlayerIndex);
+    const prevPos = useRef(gameState.players[gameState.currentPlayerIndex]?.pos ?? 1);
     useEffect(() => {
         if (!gameState || !gameState.players) return;
-        // Only auto-pan when the turn index actually changed
-        if (prevTurnIdx.current === gameState.currentPlayerIndex) return;
-        prevTurnIdx.current = gameState.currentPlayerIndex;
-
         const cp = gameState.players[gameState.currentPlayerIndex];
-        if (cp && tileCoordinates && tileCoordinates[cp.pos]) {
-            const coord = tileCoordinates[cp.pos];
-            // Center on the player's tile using actual window dimensions
-            setPan({
-                x: -coord.x + Math.round(window.innerWidth / 2),
-                y: -coord.y + Math.round(window.innerHeight / 3)
-            });
+        if (!cp) return;
+
+        const turnChanged = prevTurnIdx.current !== gameState.currentPlayerIndex;
+        const posChanged = prevPos.current !== cp.pos;
+
+        if (turnChanged || posChanged) {
+            panToTile(cp.pos);
         }
-    }, [gameState.currentPlayerIndex, tileCoordinates]);
+
+        prevTurnIdx.current = gameState.currentPlayerIndex;
+        prevPos.current = cp.pos;
+    }, [gameState.currentPlayerIndex, gameState.players, tileCoordinates]);
 
     const renderBoard = () => {
         const tiles = [];
@@ -288,6 +313,11 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                         className="avatar-bubble"
                         style={{ transform: 'rotateZ(30deg) rotateX(-50deg)' }}
                     >
+                        {p.activeEffect && (
+                            <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full shadow-lg animate-pulse whitespace-nowrap">
+                                ⚡ IF-ELSE
+                            </div>
+                        )}
                         <div className="text-[9px] font-bold text-slate-800 mb-1 leading-none absolute -top-4 w-max px-1 bg-white/90 rounded border border-slate-200">
                             {name.substring(0, 8)}
                         </div>
@@ -472,11 +502,41 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                 {/* Game End Overlay */}
                 {gameState.status === 'finished' && (
                     <div className="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center">
-                        <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#2b2926] p-10 rounded-3xl border border-[#45423d] text-center max-w-md">
-                            <div className="text-6xl mb-4">🏆</div>
-                            <h2 className="text-3xl font-black text-white mb-2">{gameState.winner ? `${gameState.winner} Wins!` : 'No Winner!'}</h2>
-                            <p className="text-gray-400 mb-6">The game has ended.</p>
-                            <button onClick={() => router.visit('/menu')} className="bg-[#81b64c] text-white px-8 py-3 font-bold rounded-xl w-full">RETURN TO MENU</button>
+                        <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#2b2926] p-8 rounded-3xl border border-[#45423d] text-center max-w-md w-full mx-4">
+                            <div className="text-6xl mb-3">🏆</div>
+                            <h2 className="text-2xl font-black text-white mb-1">{gameState.winner ? `${gameState.winner} Wins!` : 'No Winner!'}</h2>
+                            <p className="text-gray-500 text-sm mb-5">Final Rankings</p>
+                            
+                            <div className="space-y-2 mb-6">
+                                {(gameState.rankings || []).map((r, i) => {
+                                    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🏅';
+                                    const playerData = gameState.players.find(p => p.name === r.name);
+                                    return (
+                                        <motion.div key={r.name} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.15 }}
+                                            className={`flex items-center gap-3 p-3 rounded-xl border ${i === 0 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-[#1e1c1a] border-[#45423d]'}`}>
+                                            <span className="text-2xl">{medal}</span>
+                                            <div className="flex-1 text-left">
+                                                <span className="font-bold text-white text-sm">{r.name}</span>
+                                            </div>
+                                            <span className="text-xs font-mono text-gray-400">
+                                                {playerData?.pos ? `Tile ${playerData.pos}` : ''}
+                                            </span>
+                                        </motion.div>
+                                    );
+                                })}
+                                {/* Show eliminated players at the bottom */}
+                                {gameState.players.filter(p => !p.alive && !(gameState.rankings || []).find(r => r.name === p.name)).map(p => (
+                                    <div key={p.name} className="flex items-center gap-3 p-3 rounded-xl bg-[#1e1c1a] border border-[#45423d] opacity-50">
+                                        <span className="text-2xl">💀</span>
+                                        <span className="font-bold text-gray-500 text-sm flex-1 text-left">{p.name}</span>
+                                        <span className="text-xs text-gray-600">Eliminated</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <button onClick={() => router.visit('/menu')} className="bg-[#81b64c] text-white px-8 py-3 font-bold rounded-xl w-full hover:bg-[#6a9a3d] transition-colors">
+                                RETURN TO MENU
+                            </button>
                         </motion.div>
                     </div>
                 )}
