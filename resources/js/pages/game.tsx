@@ -74,19 +74,56 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
     const isDragging = useRef(false);
     const lastPos = useRef({ x: 0, y: 0 });
 
+    const [timeLeft, setTimeLeft] = useState<string>('');
+
+    useEffect(() => {
+        if (!room.timer_ends_at || gameState.status === 'finished') {
+            setTimeLeft('');
+            return;
+        }
+
+        const updateTimer = () => {
+            const end = new Date(room.timer_ends_at as string).getTime();
+            const now = new Date().getTime();
+            const diff = end - now;
+
+            if (diff <= 0) {
+                setTimeLeft('00:00');
+                return;
+            }
+
+            const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const s = Math.floor((diff % (1000 * 60)) / 1000);
+            setTimeLeft(`${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+        };
+
+        updateTimer();
+        const interval = setInterval(updateTimer, 1000);
+        return () => clearInterval(interval);
+    }, [room.timer_ends_at, gameState.status]);
+
     useEffect(() => {
         const channel = echo().join(`room.${room.code}`);
         
-        channel.listen('GameStateUpdated', (e: any) => {
+        const onGameStateUpdated = (e: any) => {
             setGameState(e.gameState);
-        });
-
-        channel.listen('RoomClosed', () => {
+        };
+        const onRoomClosed = () => {
             alert('The game room has been closed.');
             import('@inertiajs/react').then(({ router }) => router.visit('/menu'));
-        });
+        };
+        const onRoomRestarted = () => {
+            import('@inertiajs/react').then(({ router }) => router.visit(`/rooms/${room.code}`));
+        };
+
+        channel.listen('GameStateUpdated', onGameStateUpdated);
+        channel.listen('RoomClosed', onRoomClosed);
+        channel.listen('RoomRestarted', onRoomRestarted);
 
         return () => {
+            channel.stopListening('GameStateUpdated', onGameStateUpdated);
+            channel.stopListening('RoomClosed', onRoomClosed);
+            channel.stopListening('RoomRestarted', onRoomRestarted);
             echo().leave(`room.${room.code}`);
         };
     }, [room.code]);
@@ -430,6 +467,16 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                 className="game-viewport bg-gradient-to-br from-sky-200 via-green-100 to-emerald-200" 
             >
                 
+                {/* Timer Overlay */}
+                {timeLeft && (
+                    <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+                        <div className="bg-[#2b2926]/90 backdrop-blur-md px-8 py-3 rounded-2xl border-2 border-primary/50 shadow-[0_0_20px_rgba(var(--primary),0.3)]">
+                            <div className="text-xs font-bold text-gray-400 text-center mb-1 tracking-widest uppercase">Time Remaining</div>
+                            <div className="text-3xl font-black text-primary font-mono tabular-nums">{timeLeft}</div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Left Panel: Players & Log Overlay */}
                 <div className="absolute left-4 top-4 bottom-4 w-72 flex flex-col gap-4 z-50 pointer-events-none">
                     <div className="bg-[#2b2926]/90 backdrop-blur-md p-5 rounded-2xl border border-[#45423d] shadow-2xl pointer-events-auto">
@@ -534,9 +581,23 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                 ))}
                             </div>
 
-                            <button onClick={() => router.visit('/menu')} className="bg-[#81b64c] text-white px-8 py-3 font-bold rounded-xl w-full hover:bg-[#6a9a3d] transition-colors">
-                                RETURN TO MENU
-                            </button>
+                            {isOwner ? (
+                                <div className="flex flex-col gap-2 w-full mt-4">
+                                    <button onClick={() => router.post(`/rooms/${room.code}/start`)} className="bg-primary text-primary-foreground px-8 py-3 font-bold rounded-xl w-full hover:bg-primary/90 transition-colors">
+                                        RETURN TO LOBBY (RESTART)
+                                    </button>
+                                    <button onClick={() => router.visit('/menu')} className="bg-[#45423d] text-white px-8 py-3 font-bold rounded-xl w-full hover:bg-[#524e49] transition-colors">
+                                        LEAVE ROOM TO MENU
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-2 w-full mt-4">
+                                    <p className="text-xs text-gray-400 mb-1">Waiting for owner to restart...</p>
+                                    <button onClick={() => router.visit('/menu')} className="bg-[#45423d] text-white px-8 py-3 font-bold rounded-xl w-full hover:bg-[#524e49] transition-colors">
+                                        LEAVE ROOM TO MENU
+                                    </button>
+                                </div>
+                            )}
                         </motion.div>
                     </div>
                 )}

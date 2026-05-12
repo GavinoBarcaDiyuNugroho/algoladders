@@ -9,22 +9,18 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class PlayerLeft implements ShouldBroadcastNow
+class RoomRestarted implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $roomCode;
-    public $userId;
-    public $newOwnerId;
 
     /**
      * Create a new event instance.
      */
-    public function __construct($roomCode, $userId, $newOwnerId = null)
+    public function __construct($roomCode)
     {
         $this->roomCode = $roomCode;
-        $this->userId = $userId;
-        $this->newOwnerId = $newOwnerId;
     }
 
     /**

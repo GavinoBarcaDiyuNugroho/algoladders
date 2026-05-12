@@ -22,10 +22,15 @@ interface Room {
     players: Player[];
 }
 
-export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOwner: boolean, currentUser: { id: number; name: string } }) {
+export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { room: Room, isOwner: boolean, currentUser: { id: number; name: string } }) {
     const [players, setPlayers] = useState<Player[]>(room.players);
     const [onlineUsers, setOnlineUsers] = useState<number[]>([]);
     const [codeCopied, setCodeCopied] = useState(false);
+    const [timer, setTimer] = useState<number>(0);
+    const [countdown, setCountdown] = useState<number | null>(null);
+    const [ownerId, setOwnerId] = useState<number>(room.owner_id);
+    
+    const isOwner = currentUser.id === ownerId;
 
     // Use the echo-react presence hook for the PlayerReadyToggled event
     const { channel } = useEchoPresence(
@@ -47,25 +52,37 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
         const ch = channel();
         if (!ch) return;
 
-        ch.listen('GameStarted', (e: any) => {
+        const onGameStarted = (e: any) => {
             router.visit(`/rooms/${room.code}`); // Reload to render game
-        });
-        
-        ch.listen('RoomClosed', (e: any) => {
+        };
+        const onRoomClosed = (e: any) => {
             router.visit('/menu');
-        });
-        
-        ch.listen('PlayerLeft', (e: any) => {
+        };
+        const onPlayerLeft = (e: any) => {
             setPlayers(prev => prev.filter(p => p.user_id !== e.userId));
-        });
-        
-        ch.listen('PlayerJoined', (e: any) => {
+            if (e.newOwnerId) {
+                setOwnerId(e.newOwnerId);
+            }
+        };
+        const onPlayerJoined = (e: any) => {
             setPlayers(prev => {
                 // Prevent duplicate if already exists
                 if (prev.find(p => p.id === e.player.id)) return prev;
                 return [...prev, e.player];
             });
-        });
+        };
+
+        ch.listen('GameStarted', onGameStarted);
+        ch.listen('RoomClosed', onRoomClosed);
+        ch.listen('PlayerLeft', onPlayerLeft);
+        ch.listen('PlayerJoined', onPlayerJoined);
+
+        return () => {
+            ch.stopListening('GameStarted', onGameStarted);
+            ch.stopListening('RoomClosed', onRoomClosed);
+            ch.stopListening('PlayerLeft', onPlayerLeft);
+            ch.stopListening('PlayerJoined', onPlayerJoined);
+        };
     }, [channel, room.code]);
 
     // Subscribe to presence events (here/joining/leaving) via the channel
@@ -99,7 +116,19 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
     };
 
     const startGame = () => {
-        router.post(`/rooms/${room.code}/start`);
+        if (!canStart || countdown !== null) return;
+        setCountdown(3);
+        let count = 3;
+        const interval = setInterval(() => {
+            count--;
+            if (count > 0) {
+                setCountdown(count);
+            } else {
+                clearInterval(interval);
+                setCountdown(null);
+                router.post(`/rooms/${room.code}/start`, { timer });
+            }
+        }, 1000);
     };
 
     const handleLeave = () => {
@@ -113,7 +142,7 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
     }, [room.code]);
 
     const me = players.find(p => p.user_id === currentUser.id);
-    const allOthersReady = players.filter(p => p.user_id !== room.owner_id).every(p => p.is_ready);
+    const allOthersReady = players.filter(p => p.user_id !== ownerId).every(p => p.is_ready);
     const canStart = allOthersReady && players.length >= 2;
 
     // Player colors for avatars
@@ -190,7 +219,7 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
                             {players.map((player, index) => {
                                 const isOnline = onlineUsers.includes(player.user_id);
                                 const isMe = player.user_id === currentUser.id;
-                                const isRoomOwner = player.user_id === room.owner_id;
+                                const isRoomOwner = player.user_id === ownerId;
 
                                 return (
                                     <motion.div 
@@ -298,20 +327,51 @@ export default function Lobby({ room, isOwner, currentUser }: { room: Room, isOw
                             )}
 
                             {isOwner && (
-                                <motion.button 
-                                    whileHover={canStart ? { scale: 1.02 } : {}}
-                                    whileTap={canStart ? { scale: 0.98 } : {}}
-                                    onClick={startGame}
-                                    disabled={!canStart}
-                                    className="flex-1 sm:flex-none px-8 py-3.5 bg-secondary text-secondary-foreground font-bold rounded-xl hover:bg-secondary/90 transition-all shadow-md hover:shadow-secondary/40 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                                >
-                                    START GAME
-                                </motion.button>
+                                <>
+                                    <div className="flex flex-col justify-center">
+                                        <select 
+                                            value={timer} 
+                                            onChange={e => setTimer(Number(e.target.value))}
+                                            className="bg-card text-foreground border border-input rounded-xl px-4 py-3.5 text-sm font-bold shadow-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+                                        >
+                                            <option value={0}>No Timer</option>
+                                            <option value={5}>5 Minutes</option>
+                                            <option value={10}>10 Minutes</option>
+                                            <option value={15}>15 Minutes</option>
+                                        </select>
+                                    </div>
+                                    <motion.button 
+                                        whileHover={canStart ? { scale: 1.02 } : {}}
+                                        whileTap={canStart ? { scale: 0.98 } : {}}
+                                        onClick={startGame}
+                                        disabled={!canStart || countdown !== null}
+                                        className="flex-1 sm:flex-none px-8 py-3.5 bg-secondary text-secondary-foreground font-bold rounded-xl hover:bg-secondary/90 transition-all shadow-md hover:shadow-secondary/40 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                    >
+                                        {countdown !== null ? 'STARTING...' : 'START GAME'}
+                                    </motion.button>
+                                </>
                             )}
                         </div>
                     </motion.div>
                 </div>
             </div>
+
+
+            {/* Full Screen Countdown Overlay */}
+            {countdown !== null && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md">
+                    <motion.div 
+                        key={countdown}
+                        initial={{ scale: 0.5, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 1.5, opacity: 0 }}
+                        transition={{ duration: 0.5 }}
+                        className="text-9xl font-black text-primary drop-shadow-[0_0_30px_rgba(var(--primary),0.5)]"
+                    >
+                        {countdown}
+                    </motion.div>
+                </div>
+            )}
         </>
     );
 }

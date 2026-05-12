@@ -421,8 +421,13 @@ class GameController extends Controller
     {
         $player = &$gs['players'][$idx];
 
+        // Check active traps FIRST (before combat changes positions)
+        // This ensures "stepped_on_me" can detect the overlap before the victim is kicked away
+        self::checkActiveTraps($gs, $idx);
+
+        // Then resolve combat (kicking players to start)
         foreach ($gs['players'] as $i => &$other) {
-            if ($i === $idx || !$other['alive']) continue;
+            if ($i === $idx || !$other['alive'] || ($other['finished'] ?? false)) continue;
             if ($other['pos'] === $player['pos']) {
                 $gs['log'][] = "⚔️ {$player['name']} stomped on {$other['name']}! Kicked to START!";
                 $other['pos'] = 1;
@@ -433,9 +438,6 @@ class GameController extends Controller
                 }
             }
         }
-
-        // Also check active traps
-        self::checkActiveTraps($gs, $idx);
 
         return $gs;
     }

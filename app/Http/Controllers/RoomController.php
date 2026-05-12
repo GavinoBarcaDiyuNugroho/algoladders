@@ -66,8 +66,8 @@ class RoomController extends Controller
             return back()->withErrors(['code' => 'Room not found.']);
         }
 
-        if ($room->status !== 'lobby') {
-            return back()->withErrors(['code' => 'Game has already started or ended.']);
+        if (!in_array($room->status, ['lobby', 'finished'])) {
+            return back()->withErrors(['code' => 'Game is already in progress.']);
         }
 
         if ($room->players()->count() >= $room->max_players) {
@@ -126,9 +126,22 @@ class RoomController extends Controller
         }
 
         if ($room->owner_id === $user->id) {
-            // Owner leaves lobby -> close room entirely
-            $room->delete();
-            broadcast(new \App\Events\RoomClosed($code));
+            // Owner leaves lobby
+            RoomPlayer::where('room_id', $room->id)->where('user_id', $user->id)->delete();
+            
+            // Check if there are other players left
+            $nextPlayer = RoomPlayer::where('room_id', $room->id)->orderBy('id')->first();
+            
+            if ($nextPlayer) {
+                // Transfer ownership
+                $room->update(['owner_id' => $nextPlayer->user_id]);
+                broadcast(new \App\Events\PlayerLeft($code, $user->id, $nextPlayer->user_id));
+            } else {
+                // No players left -> close room
+                $room->delete();
+                broadcast(new \App\Events\RoomClosed($code));
+            }
+            
             return redirect()->route('menu');
         }
 
@@ -158,8 +171,8 @@ class RoomController extends Controller
             return redirect()->route('menu')->withErrors(['code' => 'You are not a player in this room.']);
         }
 
-        // If game has started, render game board
-        if ($room->status === 'in_progress') {
+        // If game has started or finished, render game board
+        if (in_array($room->status, ['in_progress', 'finished'])) {
             return Inertia::render('game', [
                 'room' => $room,
                 'isOwner' => $room->owner_id === $user->id,
@@ -220,8 +233,8 @@ class RoomController extends Controller
                 'disconnected_at' => null,
             ]);
             $room->update(['status' => 'lobby', 'game_state' => null, 'timer_ends_at' => null]);
-            // Reload players after reset
-            $room->load('players.user');
+            broadcast(new \App\Events\RoomRestarted($room->code));
+            return redirect()->route('rooms.show', ['code' => $room->code]);
         }
 
         // Ensure all other players are ready
@@ -309,9 +322,10 @@ class RoomController extends Controller
         ];
 
         // Set timer_ends_at if owner configured a timer
+        $timerInput = (int) $request->input('timer', 0);
         $timerEndsAt = null;
-        if ($room->timer && $room->timer > 0) {
-            $timerEndsAt = now()->addMinutes($room->timer);
+        if ($timerInput > 0) {
+            $timerEndsAt = now()->addMinutes($timerInput);
         }
 
         $room->update([
