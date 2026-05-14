@@ -20,7 +20,7 @@ class GameController extends Controller
         $gameState = $room->game_state;
 
         $currentPlayer = $gameState['players'][$gameState['currentPlayerIndex']] ?? null;
-        if (!$currentPlayer || $currentPlayer['user_id'] !== $user->id) {
+        if (!$currentPlayer || $currentPlayer['user_id'] !== $user->id || !$currentPlayer['alive']) {
             return back()->withErrors(['game' => 'Not your turn.']);
         }
 
@@ -49,7 +49,7 @@ class GameController extends Controller
         $gameState = $room->game_state;
 
         $currentPlayer = $gameState['players'][$gameState['currentPlayerIndex']] ?? null;
-        if (!$currentPlayer || $currentPlayer['user_id'] !== $user->id) {
+        if (!$currentPlayer || $currentPlayer['user_id'] !== $user->id || !$currentPlayer['alive']) {
             return back()->withErrors(['game' => 'Not your turn.']);
         }
         if (($gameState['phase'] ?? '') !== 'roll') {
@@ -77,7 +77,7 @@ class GameController extends Controller
 
         $idx = $gameState['currentPlayerIndex'];
         $currentPlayer = $gameState['players'][$idx] ?? null;
-        if (!$currentPlayer || $currentPlayer['user_id'] !== $user->id) {
+        if (!$currentPlayer || $currentPlayer['user_id'] !== $user->id || !$currentPlayer['alive']) {
             return back()->withErrors(['game' => 'Not your turn.']);
         }
         if (($gameState['phase'] ?? '') !== 'action') {
@@ -624,5 +624,34 @@ class GameController extends Controller
             }
         }
         return $nearest;
+    }
+    public function forceEliminate(Room $room, $userId)
+    {
+        $gs = $room->game_state;
+        if (!isset($gs['players'])) return;
+
+        $wasCurrentPlayer = false;
+        foreach ($gs['players'] as $i => &$p) {
+            if ($p['user_id'] === $userId && $p['alive']) {
+                $p['alive'] = false;
+                $p['hp'] = 0;
+                $gs['log'][] = "🔌 {$p['name']} disconnected and was eliminated!";
+                if ($i === $gs['currentPlayerIndex']) {
+                    $wasCurrentPlayer = true;
+                }
+            }
+        }
+
+        // Advance turn if it was their turn
+        if ($wasCurrentPlayer) {
+            $gs['phase'] = 'roll';
+            $gs = $this->advanceTurn($gs);
+        }
+
+        // Check win condition (if 1 player left)
+        $gs = $this->checkWinCondition($gs, $room);
+
+        $room->update(['game_state' => $gs]);
+        broadcast(new \App\Events\GameStateUpdated($room->code, $gs));
     }
 }

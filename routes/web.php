@@ -20,6 +20,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/rooms/{code}/ready', [RoomController::class, 'toggleReady'])->name('rooms.ready');
     Route::post('/rooms/{code}/leave', [RoomController::class, 'leave'])->name('rooms.leave');
     Route::post('/rooms/{code}/start', [RoomController::class, 'startGame'])->name('rooms.start');
+    Route::post('/rooms/{code}/ping', [RoomController::class, 'ping'])->name('rooms.ping');
 
     // In-game actions
     Route::post('/rooms/{code}/select-power', [GameController::class, 'selectPower'])->name('game.selectPower');

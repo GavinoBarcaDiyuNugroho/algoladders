@@ -1,7 +1,8 @@
 import { Head, router } from '@inertiajs/react';
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { motion } from 'motion/react';
 import { echo } from '@laravel/echo-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useHeartbeat } from '../hooks/useHeartbeat';
 
 interface Player {
     id: number;
@@ -75,6 +76,9 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
     const lastPos = useRef({ x: 0, y: 0 });
 
     const [timeLeft, setTimeLeft] = useState<string>('');
+    const [onlineUsers, setOnlineUsers] = useState<number[]>([]);
+
+    useHeartbeat(room.code);
 
     useEffect(() => {
         if (!room.timer_ends_at || gameState.status === 'finished') {
@@ -119,6 +123,18 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         channel.listen('GameStateUpdated', onGameStateUpdated);
         channel.listen('RoomClosed', onRoomClosed);
         channel.listen('RoomRestarted', onRoomRestarted);
+
+        channel.here((users: any[]) => {
+            setOnlineUsers(users.map((u: any) => u.id));
+        });
+
+        channel.joining((user: any) => {
+            setOnlineUsers(prev => [...prev, user.id]);
+        });
+
+        channel.leaving((user: any) => {
+            setOnlineUsers(prev => prev.filter(id => id !== user.id));
+        });
 
         return () => {
             channel.stopListening('GameStateUpdated', onGameStateUpdated);
@@ -458,7 +474,7 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
     };
 
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-    const isMyTurn = currentPlayer?.user_id === currentUser.id;
+    const isMyTurn = currentPlayer?.user_id === currentUser.id && currentPlayer?.alive;
 
     return (
         <>
@@ -482,28 +498,36 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                     <div className="bg-[#2b2926]/90 backdrop-blur-md p-5 rounded-2xl border border-[#45423d] shadow-2xl pointer-events-auto">
                         <h2 className="text-xl font-black italic tracking-tight text-white mb-4">PLAYERS</h2>
                         <div className="space-y-3">
-                            {gameState.players.map((p, i) => (
-                                <div 
-                                    key={p.id} 
-                                    className={`p-3 rounded-xl border-l-4 transition-all ${!p.alive ? 'opacity-40 grayscale' : ''} ${i === gameState.currentPlayerIndex ? 'bg-[#3d3a36] scale-105 shadow-md' : 'bg-[#1e1c1a]'}`}
-                                    style={{ borderColor: p.color }}
-                                >
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="font-bold text-sm text-white truncate max-w-[120px]">{p.name || `Player ${p.id}`} {p.user_id === currentUser.id && '(You)'}</span>
-                                        <span className="text-xs font-mono bg-black/40 px-2 py-0.5 rounded text-gray-300 ml-2">Pos: {p.pos}</span>
-                                    </div>
-                                    <div className="flex gap-1">
-                                        {Array.from({ length: 3 }).map((_, idx) => (
-                                            <span key={idx} className="text-sm">
-                                                {idx < p.hp ? '❤️' : '🖤'}
+                            {gameState.players.map((p, i) => {
+                                const isOnline = onlineUsers.includes(p.user_id);
+                                return (
+                                    <div 
+                                        key={p.id} 
+                                        className={`p-3 rounded-xl border-l-4 transition-all ${!p.alive ? 'opacity-40 grayscale' : (!isOnline ? 'opacity-60 border-gray-500' : '')} ${i === gameState.currentPlayerIndex && isOnline ? 'bg-[#3d3a36] scale-105 shadow-md' : 'bg-[#1e1c1a]'}`}
+                                        style={{ borderColor: !isOnline && p.alive ? '#6b7280' : p.color }}
+                                    >
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="font-bold text-sm text-white truncate max-w-[120px]">
+                                                {p.name || `Player ${p.id}`} {p.user_id === currentUser.id && '(You)'}
                                             </span>
-                                        ))}
+                                            <div className="flex items-center gap-2">
+                                                {!isOnline && p.alive && <span className="text-[10px] bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded font-bold">OFFLINE</span>}
+                                                <span className="text-xs font-mono bg-black/40 px-2 py-0.5 rounded text-gray-300">Pos: {p.pos}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            {Array.from({ length: 3 }).map((_, idx) => (
+                                                <span key={idx} className="text-sm">
+                                                    {idx < p.hp ? '❤️' : '🖤'}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        {p.activeEffect && (
+                                            <div className="text-[9px] text-blue-400 mt-1 font-bold">⚡ IF-ELSE ACTIVE</div>
+                                        )}
                                     </div>
-                                    {p.activeEffect && (
-                                        <div className="text-[9px] text-blue-400 mt-1 font-bold">⚡ IF-ELSE ACTIVE</div>
-                                    )}
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
 

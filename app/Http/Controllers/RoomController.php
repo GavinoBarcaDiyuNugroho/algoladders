@@ -38,12 +38,15 @@ class RoomController extends Controller
         ]);
 
         // Add the creator as the first player
-        RoomPlayer::create([
+        $roomPlayer = RoomPlayer::create([
             'room_id' => $room->id,
             'user_id' => $user->id,
             'is_ready' => false,
             'status' => 'connected',
+            'last_ping_at' => now(),
         ]);
+
+        \App\Jobs\CheckPlayerTimeoutJob::dispatch($roomPlayer->id)->delay(now()->addSeconds(30));
 
         return redirect()->route('rooms.show', ['code' => $room->code]);
     }
@@ -81,8 +84,14 @@ class RoomController extends Controller
         ], [
             'is_ready' => false,
             'status' => 'connected',
+            'last_ping_at' => now(),
         ]);
         
+        if (!$roomPlayer->wasRecentlyCreated) {
+            $roomPlayer->update(['last_ping_at' => now(), 'status' => 'connected']);
+        }
+        
+        \App\Jobs\CheckPlayerTimeoutJob::dispatch($roomPlayer->id)->delay(now()->addSeconds(30));
         $roomPlayer->load('user');
         broadcast(new \App\Events\PlayerJoined($room->code, $roomPlayer));
 
@@ -98,26 +107,22 @@ class RoomController extends Controller
         $user = $request->user();
 
         if ($room->status === 'in_progress') {
-            // In-game: Mark player as disconnected/dead instead of deleting room
-            $gameState = $room->game_state;
-            $allDead = true;
-            foreach ($gameState['players'] as &$p) {
-                if ($p['user_id'] === $user->id) {
-                    $p['alive'] = false; // They surrender
-                    $p['hp'] = 0;
-                }
-                if ($p['alive']) $allDead = false;
-            }
-            $gameState['log'][] = $user->name . ' surrendered and left the game.';
+            // Use forceEliminate to properly advance turn + check win condition
+            $gameController = new \App\Http\Controllers\GameController();
+            $gameController->forceEliminate($room, $user->id);
             
+            // Re-read updated game state for the log message
+            $room->refresh();
+            $gameState = $room->game_state;
+            $gameState['log'][] = $user->name . ' surrendered and left the game.';
             $room->update(['game_state' => $gameState]);
             broadcast(new \App\Events\GameStateUpdated($room->code, $gameState));
             
-            // Still delete the RoomPlayer row to free them from the room
+            // Delete the RoomPlayer row to free them from the room
             RoomPlayer::where('room_id', $room->id)->where('user_id', $user->id)->delete();
             
-            // If everyone is dead/surrendered, close the room
-            if ($allDead) {
+            // If no players left at all, close the room
+            if (RoomPlayer::where('room_id', $room->id)->count() === 0) {
                 $room->delete();
                 broadcast(new \App\Events\RoomClosed($code));
             }
@@ -151,6 +156,42 @@ class RoomController extends Controller
         broadcast(new \App\Events\PlayerLeft($code, $user->id));
         
         return redirect()->route('menu');
+    }
+
+    /**
+     * Ping endpoint to update last_ping_at for a player
+     */
+    public function ping(Request $request, $code)
+    {
+        $room = Room::where('code', $code)->first();
+        if (!$room) return response()->json(['status' => 'not_found'], 404);
+
+        $player = RoomPlayer::where('room_id', $room->id)->where('user_id', $request->user()->id)->first();
+        if (!$player) return response()->json(['status' => 'not_found'], 404);
+
+        // If the game is in progress, check if this player is already eliminated in game_state.
+        // Eliminated players should NOT be able to ping back to life.
+        if ($room->status === 'in_progress') {
+            $gameState = $room->game_state;
+            if (isset($gameState['players'])) {
+                foreach ($gameState['players'] as $p) {
+                    if ($p['user_id'] === $player->user_id && !$p['alive']) {
+                        return response()->json(['status' => 'eliminated'], 403);
+                    }
+                }
+            }
+        }
+
+        $player->update(['last_ping_at' => now()]);
+
+        // If the player was marked disconnected, they are reconnecting.
+        // Flip status back and dispatch a NEW timeout watcher.
+        if ($player->status === 'disconnected') {
+            $player->update(['status' => 'connected']);
+            \App\Jobs\CheckPlayerTimeoutJob::dispatch($player->id)->delay(now()->addSeconds(30));
+        }
+
+        return response()->json(['status' => 'ok']);
     }
 
     /**
@@ -226,11 +267,15 @@ class RoomController extends Controller
 
         // If restarting from a finished game, reset all players first
         if ($room->status === 'finished') {
+            // Remove disconnected players so they don't appear as ghosts
+            $room->players()->where('status', 'disconnected')->delete();
+
             $room->players()->update([
                 'is_ready' => false,
                 'hp' => 3,
                 'active_effect' => null,
                 'disconnected_at' => null,
+                'status' => 'connected',
             ]);
             $room->update(['status' => 'lobby', 'game_state' => null, 'timer_ends_at' => null]);
             broadcast(new \App\Events\RoomRestarted($room->code));
@@ -258,12 +303,13 @@ class RoomController extends Controller
         // START tile always has value 0 to prevent multiplication abuse
         $tileValues[1] = 0;
 
-        // Initialize players
+        // Initialize players (shuffle for random turn order)
         $playersState = [];
         $colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#ec4899'];
         $index = 0;
-        
-        foreach ($room->players as $player) {
+        $shuffledPlayers = $room->players->shuffle();
+
+        foreach ($shuffledPlayers as $player) {
             $playersState[] = [
                 'id' => $player->id,
                 'user_id' => $player->user_id,

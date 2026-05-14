@@ -14,12 +14,14 @@ class RoomPlayer extends Model
         'hp',
         'active_effect',
         'disconnected_at',
+        'last_ping_at',
     ];
 
     protected $casts = [
         'is_ready' => 'boolean',
         'active_effect' => 'array',
         'disconnected_at' => 'datetime',
+        'last_ping_at' => 'datetime',
     ];
 
     public function room()

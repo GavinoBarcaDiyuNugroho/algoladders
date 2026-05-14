@@ -2,7 +2,8 @@ import { Head, router } from '@inertiajs/react';
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { Users, Crown, CheckCircle2, Circle, Copy, Check } from 'lucide-react';
-import { useEchoPresence, echo } from '@laravel/echo-react';
+import { echo } from '@laravel/echo-react';
+import { useHeartbeat } from '../hooks/useHeartbeat';
 
 interface Player {
     id: number;
@@ -32,25 +33,11 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
     
     const isOwner = currentUser.id === ownerId;
 
-    // Use the echo-react presence hook for the PlayerReadyToggled event
-    const { channel } = useEchoPresence(
-        `room.${room.code}`,
-        'PlayerReadyToggled',
-        (e: any) => {
-            setPlayers(prevPlayers => prevPlayers.map(p => {
-                if (p.user_id === e.userId) {
-                    return { ...p, is_ready: e.isReady };
-                }
-                return p;
-            }));
-        },
-        [room.code],
-    );
+    useHeartbeat(room.code);
 
-    // Listen to GameStarted, RoomClosed, PlayerLeft, PlayerJoined
+    // Listen to GameStarted, RoomClosed, PlayerLeft, PlayerJoined, and Presence
     useEffect(() => {
-        const ch = channel();
-        if (!ch) return;
+        const channel = echo().join(`room.${room.code}`);
 
         const onGameStarted = (e: any) => {
             router.visit(`/rooms/${room.code}`); // Reload to render game
@@ -71,37 +58,39 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
                 return [...prev, e.player];
             });
         };
-
-        ch.listen('GameStarted', onGameStarted);
-        ch.listen('RoomClosed', onRoomClosed);
-        ch.listen('PlayerLeft', onPlayerLeft);
-        ch.listen('PlayerJoined', onPlayerJoined);
-
-        return () => {
-            ch.stopListening('GameStarted', onGameStarted);
-            ch.stopListening('RoomClosed', onRoomClosed);
-            ch.stopListening('PlayerLeft', onPlayerLeft);
-            ch.stopListening('PlayerJoined', onPlayerJoined);
+        const onPlayerReadyToggled = (e: any) => {
+            setPlayers(prev => prev.map(p => 
+                p.user_id === e.userId ? { ...p, is_ready: e.isReady } : p
+            ));
         };
-    }, [channel, room.code]);
 
-    // Subscribe to presence events (here/joining/leaving) via the channel
-    useEffect(() => {
-        const ch = channel();
-        if (!ch) return;
+        channel.listen('GameStarted', onGameStarted);
+        channel.listen('RoomClosed', onRoomClosed);
+        channel.listen('PlayerLeft', onPlayerLeft);
+        channel.listen('PlayerJoined', onPlayerJoined);
+        channel.listen('PlayerReadyToggled', onPlayerReadyToggled);
 
-        ch.here((users: any[]) => {
+        channel.here((users: any[]) => {
             setOnlineUsers(users.map((u: any) => u.id));
         });
 
-        ch.joining((user: any) => {
+        channel.joining((user: any) => {
             setOnlineUsers(prev => [...prev, user.id]);
         });
 
-        ch.leaving((user: any) => {
+        channel.leaving((user: any) => {
             setOnlineUsers(prev => prev.filter(id => id !== user.id));
         });
-    }, [channel]);
+
+        return () => {
+            channel.stopListening('GameStarted', onGameStarted);
+            channel.stopListening('RoomClosed', onRoomClosed);
+            channel.stopListening('PlayerLeft', onPlayerLeft);
+            channel.stopListening('PlayerJoined', onPlayerJoined);
+            channel.stopListening('PlayerReadyToggled', onPlayerReadyToggled);
+            echo().leave(`room.${room.code}`);
+        };
+    }, [room.code]);
 
     // Update local state when Inertia reloads the page props
     useEffect(() => {
