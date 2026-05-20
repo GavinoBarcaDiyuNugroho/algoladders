@@ -4,7 +4,7 @@ import { Plus, Users, Hash, ArrowLeft, XCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 export default function Menu() {
-    const { errors } = usePage().props as any;
+    const { errors, auth } = usePage().props as any;
     const [joinCode, setJoinCode] = useState('');
     const [maxPlayers, setMaxPlayers] = useState('4');
     const [showError, setShowError] = useState(false);
@@ -91,48 +91,53 @@ export default function Menu() {
                             GAME <span className="text-secondary">MENU</span>
                         </motion.h1>
                         <p className="text-muted-foreground text-lg font-medium max-w-md mx-auto md:mx-0">
-                            Create a new room to invite friends, or enter a code to join an existing session.
+                            {auth?.user?.is_guest 
+                                ? "Enter a room code to join an existing session." 
+                                : "Create a new room to invite friends, or enter a code to join an existing session."
+                            }
                         </p>
                     </div>
 
                     <div className="grid gap-6">
                         {/* Create Game Card */}
-                        <motion.div 
-                            initial={{ x: 20, opacity: 0 }}
-                            animate={{ x: 0, opacity: 1 }}
-                            transition={{ delay: 0.3 }}
-                            className="bg-card/80 backdrop-blur-md border border-border p-8 rounded-3xl shadow-xl flex flex-col items-center text-center space-y-4 hover:border-primary/50 transition-colors group"
-                        >
-                            <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                                <Plus className="w-8 h-8" />
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-bold">Create Room</h2>
-                                <p className="text-muted-foreground text-sm mt-1">Host a new game and invite players.</p>
-                            </div>
-                            
-                            <div className="w-full mt-2 flex items-center gap-4 bg-background p-2 rounded-xl border border-input">
-                                <label className="text-sm font-bold text-muted-foreground ml-2">Players:</label>
-                                <select 
-                                    value={maxPlayers}
-                                    onChange={(e) => setMaxPlayers(e.target.value)}
-                                    className="flex-1 bg-transparent font-bold outline-none border-none focus:ring-0 text-center"
-                                >
-                                    <option value="2">2 Players</option>
-                                    <option value="3">3 Players</option>
-                                    <option value="4">4 Players</option>
-                                    <option value="5">5 Players</option>
-                                    <option value="6">6 Players</option>
-                                </select>
-                            </div>
-
-                            <button 
-                                onClick={handleCreateGame}
-                                className="w-full mt-2 px-6 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all shadow-md hover:shadow-primary/50"
+                        {!auth?.user?.is_guest && (
+                            <motion.div 
+                                initial={{ x: 20, opacity: 0 }}
+                                animate={{ x: 0, opacity: 1 }}
+                                transition={{ delay: 0.3 }}
+                                className="bg-card/80 backdrop-blur-md border border-border p-8 rounded-3xl shadow-xl flex flex-col items-center text-center space-y-4 hover:border-primary/50 transition-colors group"
                             >
-                                CREATE GAME
-                            </button>
-                        </motion.div>
+                                <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <Plus className="w-8 h-8" />
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-bold">Create Room</h2>
+                                    <p className="text-muted-foreground text-sm mt-1">Host a new game and invite players.</p>
+                                </div>
+                                
+                                <div className="w-full mt-2 flex items-center gap-4 bg-background p-2 rounded-xl border border-input">
+                                    <label className="text-sm font-bold text-muted-foreground ml-2">Players:</label>
+                                    <select 
+                                        value={maxPlayers}
+                                        onChange={(e) => setMaxPlayers(e.target.value)}
+                                        className="flex-1 bg-transparent font-bold outline-none border-none focus:ring-0 text-center"
+                                    >
+                                        <option value="2">2 Players</option>
+                                        <option value="3">3 Players</option>
+                                        <option value="4">4 Players</option>
+                                        <option value="5">5 Players</option>
+                                        <option value="6">6 Players</option>
+                                    </select>
+                                </div>
+
+                                <button 
+                                    onClick={handleCreateGame}
+                                    className="w-full mt-2 px-6 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all shadow-md hover:shadow-primary/50"
+                                >
+                                    CREATE GAME
+                                </button>
+                            </motion.div>
+                        )}
 
                         {/* Join Game Card */}
                         <motion.div 

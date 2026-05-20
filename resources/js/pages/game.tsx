@@ -2,7 +2,10 @@ import { Head, router } from '@inertiajs/react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { echo } from '@laravel/echo-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Settings, X } from 'lucide-react';
 import { useHeartbeat } from '../hooks/useHeartbeat';
+import { useSoundEffects } from '../hooks/useSoundEffects';
+import GameToast, { ToastData, ToastType } from '../components/GameToast';
 
 interface Player {
     id: number;
@@ -61,6 +64,96 @@ function createSeededRandom(seed: number) {
     };
 }
 
+function PlayerAvatar({ p, idx, tileCoordinates }: { p: Player, idx: number, tileCoordinates: TileCoordinates }) {
+    const [pathCoords, setPathCoords] = useState<{left: number, top: number}[]>([]);
+    const prevPosRef = useRef(p.pos);
+    const { playSfx } = useSoundEffects();
+
+    useEffect(() => {
+        const oldPos = prevPosRef.current;
+        const newPos = p.pos;
+        let newPath = [];
+
+        if (oldPos !== newPos && Math.abs(newPos - oldPos) <= 12) {
+            const step = newPos > oldPos ? 1 : -1;
+            for (let i = oldPos; i !== newPos + step; i += step) {
+                const c = tileCoordinates[i];
+                if (c) newPath.push({ left: c.x + 13 + (idx * 5), top: c.y + 5 + (idx * 5) });
+            }
+        } else {
+            const c = tileCoordinates[newPos];
+            if (c) newPath.push({ left: c.x + 13 + (idx * 5), top: c.y + 5 + (idx * 5) });
+        }
+
+        if (newPath.length > 1) {
+            // It's a hop
+            let hopIndex = 0;
+            const hopInterval = setInterval(() => {
+                if (hopIndex < newPath.length) {
+                    playSfx('hop');
+                    hopIndex++;
+                } else {
+                    clearInterval(hopInterval);
+                }
+            }, 200);
+            
+            // Clean up on unmount or new animation
+            return () => clearInterval(hopInterval);
+        }
+
+        setPathCoords(newPath);
+        prevPosRef.current = newPos;
+    }, [p.pos, idx, tileCoordinates, playSfx]);
+
+    if (pathCoords.length === 0) return null;
+
+    const name = p.name || `Player ${p.id}`;
+    const initials = name.substring(0, 2).toUpperCase();
+
+    const lefts = pathCoords.map(c => `${c.left}px`);
+    const tops = pathCoords.map(c => `${c.top}px`);
+    const scales = pathCoords.map((_, i) => i === pathCoords.length - 1 ? 1 : 1.2);
+    const scaleY = pathCoords.map((_, i) => i === pathCoords.length - 1 ? 1 : 0.8);
+
+    return (
+        <motion.div
+            key={p.id}
+            layoutId={`avatar-${p.id}`}
+            initial={false}
+            animate={{
+                left: lefts, 
+                top: tops,
+                scale: scales,
+                scaleY: scaleY,
+                z: 60
+            }}
+            transition={{ 
+                duration: pathCoords.length > 1 ? pathCoords.length * 0.2 : 0.5,
+                ease: "easeInOut" 
+            }}
+            className="absolute"
+            style={{ zIndex: 600 + idx, transformStyle: 'preserve-3d' }}
+        >
+            <div 
+                className="avatar-bubble"
+                style={{ transform: 'rotateZ(30deg) rotateX(-50deg)' }}
+            >
+                {p.activeEffect && (
+                    <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full shadow-lg animate-pulse whitespace-nowrap">
+                        ⚡ IF-ELSE
+                    </div>
+                )}
+                <div className="text-[9px] font-bold text-slate-800 mb-1 leading-none absolute -top-4 w-max px-1 bg-white/90 rounded border border-slate-200">
+                    {name.substring(0, 8)}
+                </div>
+                <div className="avatar-img shadow-lg" style={{ backgroundColor: p.color, color: 'white' }}>
+                    {initials}
+                </div>
+            </div>
+        </motion.div>
+    );
+}
+
 export default function Game({ room, currentUser, isOwner }: { room: Room, currentUser: any, isOwner: boolean }) {
     const [gameState, setGameState] = useState<GameState>(room.game_state);
     const [loading, setLoading] = useState(false);
@@ -78,8 +171,36 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
     const [timeLeft, setTimeLeft] = useState<string>('');
     const [onlineUsers, setOnlineUsers] = useState<number[]>([]);
 
-    useHeartbeat(room.code);
+    const [showDiceAnim, setShowDiceAnim] = useState<{result: number, tumbling: boolean} | null>(null);
+    const [showTurnReveal, setShowTurnReveal] = useState(room.game_state.status === 'playing' && room.game_state.log.length <= 1 && room.game_state.players[0].pos === 1);
 
+    const [toasts, setToasts] = useState<ToastData[]>([]);
+    const [turnBanner, setTurnBanner] = useState<{name: string, color: string} | null>(null);
+
+    const addToast = (type: ToastType, title: string, message: string) => {
+        setToasts(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), type, title, message }]);
+    };
+    
+    const removeToast = (id: string) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    };
+    useEffect(() => {
+        if (showTurnReveal) {
+            const t = setTimeout(() => setShowTurnReveal(false), 3000);
+            return () => clearTimeout(t);
+        }
+    }, [showTurnReveal]);
+    useHeartbeat(room.code);
+    const { playSfx, playBgm, stopBgm, bgmVolume, setBgmVolume, sfxVolume, setSfxVolume } = useSoundEffects();
+    const [showSettings, setShowSettings] = useState(false);
+    useEffect(() => {
+        if (gameState.status === 'playing') {
+            playBgm('game');
+        } else if (gameState.status === 'waiting') {
+            playBgm('lobby');
+        }
+        return () => stopBgm();
+    }, [gameState.status, playBgm, stopBgm]);
     useEffect(() => {
         if (!room.timer_ends_at || gameState.status === 'finished') {
             setTimeLeft('');
@@ -268,6 +389,8 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         return coords;
     }, [room.id]);
 
+    const [mapZoom, setMapZoom] = useState(1);
+
     // Center camera on a tile by reading its actual rendered screen position
     const panToTile = (pos: number) => {
         // Use requestAnimationFrame to ensure DOM has updated
@@ -287,12 +410,18 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                 x: prev.x + (screenCenterX - tileCenterX),
                 y: prev.y + (screenCenterY - tileCenterY)
             }));
+            
+            // Add a slight pulse zoom
+            setMapZoom(1.03);
+            setTimeout(() => setMapZoom(1), 300);
         });
     };
 
     // Auto-pan when the turn changes OR when the current player's position changes
     const prevTurnIdx = useRef(gameState.currentPlayerIndex);
     const prevPos = useRef(gameState.players[gameState.currentPlayerIndex]?.pos ?? 1);
+    const initialPanDone = useRef(false);
+
     useEffect(() => {
         if (!gameState || !gameState.players) return;
         const cp = gameState.players[gameState.currentPlayerIndex];
@@ -301,13 +430,49 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         const turnChanged = prevTurnIdx.current !== gameState.currentPlayerIndex;
         const posChanged = prevPos.current !== cp.pos;
 
-        if (turnChanged || posChanged) {
+        if (turnChanged) {
+            setTurnBanner({ name: cp.name, color: cp.color });
+            playSfx('turn-start');
+            setTimeout(() => setTurnBanner(null), 2500);
+        }
+
+        if (turnChanged || posChanged || (!initialPanDone.current && Object.keys(tileCoordinates).length > 0)) {
             panToTile(cp.pos);
+            if (Object.keys(tileCoordinates).length > 0) {
+                initialPanDone.current = true;
+            }
         }
 
         prevTurnIdx.current = gameState.currentPlayerIndex;
         prevPos.current = cp.pos;
-    }, [gameState.currentPlayerIndex, gameState.players, tileCoordinates]);
+    }, [gameState.currentPlayerIndex, gameState.players, tileCoordinates, playSfx]);
+
+    const prevPhase = useRef(gameState.phase);
+    useEffect(() => {
+        if (prevPhase.current === 'roll' && gameState.phase === 'action' && gameState.lastRoll !== null) {
+            playSfx('dice-roll');
+            setShowDiceAnim({ result: gameState.lastRoll, tumbling: true });
+            setTimeout(() => setShowDiceAnim(prev => prev ? {...prev, tumbling: false} : null), 1500);
+            setTimeout(() => setShowDiceAnim(null), 2500);
+        }
+        prevPhase.current = gameState.phase;
+    }, [gameState.phase, gameState.lastRoll, playSfx]);
+
+    const prevLogLen = useRef(gameState.log.length);
+    useEffect(() => {
+        if (gameState.log.length > prevLogLen.current) {
+            const newLogs = gameState.log.slice(prevLogLen.current);
+            newLogs.forEach(log => {
+                if (log.includes('found a LADDER') || log.includes('teleported to ladder')) { addToast('success', 'Ladder!', log); playSfx('ladder-climb'); }
+                else if (log.includes('bitten by a SNAKE')) { addToast('danger', 'Snake!', log); playSfx('snake-slide'); }
+                else if (log.includes('stepped on a TRAP')) { addToast('warning', 'Trap Triggered!', log); playSfx('trap-activate'); }
+                else if (log.includes('has been eliminated')) { addToast('elimination', 'Player Eliminated', log); playSfx('error'); }
+                else if (log.includes('WINS THE GAME')) { addToast('victory', 'Game Over', log); playSfx('success'); }
+                else if (log.includes('moved to')) playSfx('click');
+            });
+        }
+        prevLogLen.current = gameState.log.length;
+    }, [gameState.log, playSfx]);
 
     const renderBoard = () => {
         const tiles = [];
@@ -341,46 +506,9 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
     };
 
     const renderAvatars = () => {
-        return gameState.players.filter(p => p.alive).map((p, idx) => {
-            const coord = tileCoordinates[p.pos];
-            if (!coord) return null;
-            
-            const name = p.name || `Player ${p.id}`;
-            const initials = name.substring(0, 2).toUpperCase();
-
-            return (
-                <motion.div
-                    key={p.id}
-                    layoutId={`avatar-${p.id}`}
-                    initial={false}
-                    animate={{
-                        left: `${coord.x + 13 + (idx * 5)}px`, 
-                        top: `${coord.y + 5 + (idx * 5)}px`,
-                        z: 60
-                    }}
-                    transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-                    className="absolute"
-                    style={{ zIndex: 600 + idx, transformStyle: 'preserve-3d' }}
-                >
-                    <div 
-                        className="avatar-bubble"
-                        style={{ transform: 'rotateZ(30deg) rotateX(-50deg)' }}
-                    >
-                        {p.activeEffect && (
-                            <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full shadow-lg animate-pulse whitespace-nowrap">
-                                ⚡ IF-ELSE
-                            </div>
-                        )}
-                        <div className="text-[9px] font-bold text-slate-800 mb-1 leading-none absolute -top-4 w-max px-1 bg-white/90 rounded border border-slate-200">
-                            {name.substring(0, 8)}
-                        </div>
-                        <div className="avatar-img shadow-lg" style={{ backgroundColor: p.color, color: 'white' }}>
-                            {initials}
-                        </div>
-                    </div>
-                </motion.div>
-            );
-        });
+        return gameState.players.filter(p => p.alive).map((p, idx) => (
+            <PlayerAvatar key={p.id} p={p} idx={idx} tileCoordinates={tileCoordinates} />
+        ));
     };
 
     const renderSnakesAndLadders = () => {
@@ -517,9 +645,15 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                         </div>
                                         <div className="flex gap-1">
                                             {Array.from({ length: 3 }).map((_, idx) => (
-                                                <span key={idx} className="text-sm">
+                                                <motion.span 
+                                                    key={`${p.id}-${idx}-${idx < p.hp}`}
+                                                    initial={{ scale: 2, rotate: -20, opacity: 0 }}
+                                                    animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                                                    transition={{ type: 'spring', stiffness: 500, damping: 15 }}
+                                                    className="text-sm inline-block"
+                                                >
                                                     {idx < p.hp ? '❤️' : '🖤'}
-                                                </span>
+                                                </motion.span>
                                             ))}
                                         </div>
                                         {p.activeEffect && (
@@ -555,8 +689,8 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                     <div 
                         className="map-container" 
                         style={{ 
-                            transform: `translate(${pan.x}px, ${pan.y}px) rotateX(50deg) rotateZ(-30deg)`,
-                            transition: isDragging.current ? 'none' : 'transform 0.1s ease-out'
+                            transform: `translate(${pan.x}px, ${pan.y}px) rotateX(50deg) rotateZ(-30deg) scale(${mapZoom})`,
+                            transition: isDragging.current ? 'none' : 'transform 0.6s cubic-bezier(0.25, 1, 0.5, 1)'
                         }}
                     >
                         {renderBoard()}
@@ -729,16 +863,160 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                         ) : null}
                         
                         {gameState.status === 'playing' && (
-                            <button 
-                                onClick={() => { if (confirm('Are you sure you want to surrender?')) router.post(`/rooms/${room.code}/leave`); }}
-                                className="text-[#ef4444] hover:text-[#f87171] font-bold text-xs flex items-center gap-2 mt-4 transition-colors">
-                                🏳️ SURRENDER
-                            </button>
+                            <div className="flex justify-between items-center mt-4">
+                                <button 
+                                    onClick={() => { if (confirm('Are you sure you want to surrender?')) router.post(`/rooms/${room.code}/leave`); }}
+                                    className="text-[#ef4444] hover:text-[#f87171] font-bold text-xs flex items-center gap-2 transition-colors">
+                                    🏳️ SURRENDER
+                                </button>
+                                <button 
+                                    onClick={() => setShowSettings(true)}
+                                    className="text-gray-400 hover:text-white transition-colors p-2 bg-[#1e1c1a] rounded-full border border-[#45423d]">
+                                    <Settings className="w-4 h-4" />
+                                </button>
+                            </div>
                         )}
                     </div>
                 </div>
 
             </div>
+            
+            <GameToast toasts={toasts} removeToast={removeToast} />
+
+            {/* Settings Modal */}
+            <AnimatePresence>
+                {showSettings && (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 pointer-events-auto"
+                    >
+                        <motion.div 
+                            initial={{ scale: 0.9, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.9, y: 20 }}
+                            className="bg-[#2b2926] p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-[#45423d] relative"
+                        >
+                            <button 
+                                onClick={() => setShowSettings(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                            <h2 className="text-2xl font-black italic text-white mb-6">SETTINGS</h2>
+                            
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Music Volume</label>
+                                    <input 
+                                        type="range" 
+                                        min="0" 
+                                        max="1" 
+                                        step="0.01" 
+                                        value={bgmVolume} 
+                                        onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                                        className="w-full accent-primary"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">SFX Volume</label>
+                                    <input 
+                                        type="range" 
+                                        min="0" 
+                                        max="1" 
+                                        step="0.01" 
+                                        value={sfxVolume} 
+                                        onChange={(e) => setSfxVolume(parseFloat(e.target.value))}
+                                        className="w-full accent-secondary"
+                                    />
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {turnBanner && (
+                    <motion.div
+                        initial={{ y: -100, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: -100, opacity: 0 }}
+                        className="fixed top-20 left-0 right-0 z-[150] flex justify-center pointer-events-none"
+                    >
+                        <div 
+                            className="px-12 py-4 rounded-full shadow-2xl backdrop-blur-md border-b-4"
+                            style={{ backgroundColor: `${turnBanner.color}dd`, borderColor: turnBanner.color }}
+                        >
+                            <h2 className="text-3xl font-black text-white uppercase tracking-widest drop-shadow-md">
+                                {turnBanner.name}'S TURN
+                            </h2>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Turn Order Reveal Overlay */}
+            <AnimatePresence>
+                {showTurnReveal && (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/80 backdrop-blur-md"
+                    >
+                        <h2 className="text-4xl font-black text-white mb-12 tracking-widest">TURN ORDER</h2>
+                        <div className="flex flex-wrap justify-center gap-6 px-4">
+                            {gameState.players.map((p, i) => (
+                                <div key={p.id} className="turn-card-container">
+                                    <div className="turn-card turn-card-reveal" style={{ animationDelay: `${i * 0.4}s` }}>
+                                         <div className="turn-card-front text-6xl">?</div>
+                                         <div className="turn-card-back" style={{ borderColor: p.color }}>
+                                             <div className="text-6xl font-black mb-2" style={{ color: p.color }}>{i + 1}</div>
+                                             <div className="text-sm font-bold text-center px-2 text-slate-800">{p.name}</div>
+                                         </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Dice Tumble & Result Overlay */}
+            <AnimatePresence>
+                {showDiceAnim && (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm"
+                    >
+                        <div className={`dice-container ${showDiceAnim.tumbling ? 'block' : 'hidden'}`}>
+                            <div className="dice tumbling">
+                                {[1,2,3,4,5,6].map(i => (
+                                    <div key={i} className={`dice-face dice-face-${i}`}>
+                                        {Array.from({ length: i }).map((_, dotIdx) => (
+                                            <span key={dotIdx} className="dot"></span>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        {/* Result Phase */}
+                        {!showDiceAnim.tumbling && (
+                            <motion.div 
+                                initial={{ scale: 0, rotate: -180 }}
+                                animate={{ scale: 1.5, rotate: 0 }}
+                                className="w-32 h-32 bg-white rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.5)] flex items-center justify-center text-7xl font-black text-slate-800 border-8 border-primary"
+                            >
+                                {showDiceAnim.result}
+                            </motion.div>
+                        )}
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </>
     );
 }

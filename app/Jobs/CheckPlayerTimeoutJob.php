@@ -63,13 +63,13 @@ class CheckPlayerTimeoutJob implements ShouldQueue
 
         Log::info("TimeoutJob: Player {$this->playerId} last_ping_at={$lastPing}, diff={$diff}s");
 
-        if ($diff >= 30) {
+        if ($diff >= 120) {
             // TIME OUT!
             Log::info("TimeoutJob: Player {$this->playerId} TIMED OUT after {$diff}s. Eliminating.");
             $this->eliminatePlayer($player, $room);
         } else {
             // STILL ACTIVE - Reschedule using integer seconds delay (safest)
-            $remainingSeconds = 30 - $diff;
+            $remainingSeconds = 120 - $diff;
             Log::info("TimeoutJob: Player {$this->playerId} still active. Rescheduling in {$remainingSeconds}s.");
             self::dispatch($this->playerId)->delay(now()->addSeconds($remainingSeconds));
         }

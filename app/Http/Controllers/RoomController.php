@@ -46,7 +46,7 @@ class RoomController extends Controller
             'last_ping_at' => now(),
         ]);
 
-        \App\Jobs\CheckPlayerTimeoutJob::dispatch($roomPlayer->id)->delay(now()->addSeconds(30));
+        \App\Jobs\CheckPlayerTimeoutJob::dispatch($roomPlayer->id)->delay(now()->addSeconds(120));
 
         return redirect()->route('rooms.show', ['code' => $room->code]);
     }
@@ -91,7 +91,7 @@ class RoomController extends Controller
             $roomPlayer->update(['last_ping_at' => now(), 'status' => 'connected']);
         }
         
-        \App\Jobs\CheckPlayerTimeoutJob::dispatch($roomPlayer->id)->delay(now()->addSeconds(30));
+        \App\Jobs\CheckPlayerTimeoutJob::dispatch($roomPlayer->id)->delay(now()->addSeconds(120));
         $roomPlayer->load('user');
         broadcast(new \App\Events\PlayerJoined($room->code, $roomPlayer));
 
@@ -188,7 +188,7 @@ class RoomController extends Controller
         // Flip status back and dispatch a NEW timeout watcher.
         if ($player->status === 'disconnected') {
             $player->update(['status' => 'connected']);
-            \App\Jobs\CheckPlayerTimeoutJob::dispatch($player->id)->delay(now()->addSeconds(30));
+            \App\Jobs\CheckPlayerTimeoutJob::dispatch($player->id)->delay(now()->addSeconds(120));
         }
 
         return response()->json(['status' => 'ok']);

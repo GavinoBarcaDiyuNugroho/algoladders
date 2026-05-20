@@ -348,14 +348,18 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
 
             {/* Full Screen Countdown Overlay */}
             {countdown !== null && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-lg">
                     <motion.div 
                         key={countdown}
-                        initial={{ scale: 0.5, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 1.5, opacity: 0 }}
-                        transition={{ duration: 0.5 }}
-                        className="text-9xl font-black text-primary drop-shadow-[0_0_30px_rgba(var(--primary),0.5)]"
+                        initial={{ scale: 3, opacity: 0, rotate: -20 }}
+                        animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                        exit={{ scale: 0.5, opacity: 0 }}
+                        transition={{ type: 'spring', stiffness: 500, damping: 15 }}
+                        className={`text-[15rem] font-black drop-shadow-[0_0_80px_currentColor] ${
+                            countdown === 3 ? 'text-red-500' :
+                            countdown === 2 ? 'text-orange-500' :
+                            'text-green-500'
+                        }`}
                     >
                         {countdown}
                     </motion.div>

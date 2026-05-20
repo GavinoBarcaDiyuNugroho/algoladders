@@ -9,6 +9,9 @@ Route::inertia('/', 'welcome', [
     'canRegister' => Features::enabled(Features::registration()),
 ])->name('home');
 
+Route::post('/guest-login', [\App\Http\Controllers\GuestLoginController::class, 'store'])->name('guest.login');
+Route::inertia('/guide', 'guide')->name('guide');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
 
