@@ -2,7 +2,7 @@ import { Head, router } from '@inertiajs/react';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { echo } from '@laravel/echo-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, X } from 'lucide-react';
+import { Settings, X, ZoomIn, ZoomOut, ChevronDown, ChevronRight } from 'lucide-react';
 import { useHeartbeat } from '../hooks/useHeartbeat';
 import { useSoundEffects } from '../hooks/useSoundEffects';
 import GameToast, { ToastData, ToastType } from '../components/GameToast';
@@ -436,6 +436,7 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
     }, [room.id]);
 
     const [mapZoom, setMapZoom] = useState(1);
+    const [isConsoleOpen, setIsConsoleOpen] = useState(false);
 
     // Center camera on a tile by reading its actual rendered screen position
     const panToTile = (pos: number) => {
@@ -818,9 +819,12 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                     </div>
                 )}
 
-                {/* Left Panel: Players & Log Overlay */}
-                <div className="absolute left-4 top-4 bottom-4 w-72 flex flex-col gap-4 z-50 pointer-events-none">
-                    <div className="bg-[#2b2926]/90 backdrop-blur-md p-5 rounded-2xl border border-[#45423d] shadow-2xl pointer-events-auto">
+                {/* Left Panel: Players, Console & Actions */}
+                <div className="absolute left-4 top-4 bottom-4 w-[320px] flex flex-col gap-4 z-50 pointer-events-none pb-4">
+                    
+                    {/* SCROLLABLE TOP SECTION */}
+                    <div className="flex-1 flex flex-col gap-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] min-h-0 pointer-events-auto">
+                        <div className="bg-[#2b2926]/90 backdrop-blur-md p-5 rounded-2xl border border-[#45423d] shadow-2xl shrink-0">
                         <h2 className="text-xl font-black italic tracking-tight text-white mb-4">PLAYERS</h2>
                         <div className="space-y-3">
                             {gameState.players.map((p, i) => {
@@ -862,16 +866,161 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                         </div>
                     </div>
 
-                    <div className="bg-[#2b2926]/90 backdrop-blur-md flex-1 min-h-[200px] rounded-2xl border border-[#45423d] flex flex-col overflow-hidden shadow-2xl pointer-events-auto">
-                        <div className="bg-[#1e1c1a]/80 px-4 py-2 text-xs font-bold text-gray-400 tracking-wider">CONSOLE</div>
-                        <div className="p-4 flex-1 overflow-y-auto space-y-2 font-mono text-xs text-white">
-                            {gameState.log.slice().reverse().map((msg, i) => (
-                                <div key={i} className="border-b border-[#45423d]/50 pb-1">
-                                    <span className="text-[#81b64c] mr-2">❯</span>{msg}
-                                </div>
-                            ))}
-                        </div>
+                    {/* CONSOLE (Collapsible) */}
+                    <div className="bg-[#2b2926]/90 backdrop-blur-md rounded-2xl border border-[#45423d] flex flex-col overflow-hidden shadow-2xl pointer-events-auto shrink-0 transition-all duration-300">
+                        <button 
+                            onClick={() => { playSfx('click'); setIsConsoleOpen(!isConsoleOpen); }} 
+                            className="bg-[#1e1c1a]/80 px-4 py-3 flex justify-between items-center w-full hover:bg-[#3d3a36] transition-colors"
+                        >
+                            <span className="text-xs font-bold text-gray-400 tracking-wider">CONSOLE</span>
+                            {isConsoleOpen ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                        </button>
+                        {isConsoleOpen && (
+                            <div className="p-4 h-48 overflow-y-auto space-y-2 font-mono text-xs text-white border-t border-[#45423d] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                                {gameState.log.slice().reverse().map((msg, i) => (
+                                    <div key={i} className="border-b border-[#45423d]/50 pb-1">
+                                        <span className="text-[#81b64c] mr-2">❯</span>{msg}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
+                    </div>
+
+                    {/* ACTION PANEL */}
+                    <div className="bg-[#2b2926]/90 p-5 rounded-2xl border border-[#45423d] shadow-2xl pointer-events-auto shrink-0 mt-auto flex flex-col items-center">
+                        <div className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1 text-center">
+                            Current Turn: <span style={{ color: currentPlayer?.color }}>{currentPlayer?.name}</span>
+                            {gameState.lastRoll && <span className="ml-2 text-yellow-400">🎲 {gameState.lastRoll}</span>}
+                        </div>
+                        
+                        {isMyTurn && gameState.status === 'playing' ? (
+                            <div className="w-full flex flex-col items-center gap-3 mt-2">
+                                
+                                {/* PHASE: SELECT POWER */}
+                                {gameState.phase === 'select' && (
+                                    <div className="flex gap-2 w-full justify-center">
+                                        {(['math', 'ifelse', 'forloop'] as const).map(p => (
+                                            <button key={p} disabled={loading || isAnimating} onClick={() => { playSfx('power-select'); setLoading(true); router.post(`/rooms/${room.code}/select-power`, { power: p }, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                                className="bg-[#3d3a36] hover:bg-[#81b64c] p-3 rounded-xl flex flex-col items-center transition-colors border border-[#45423d] flex-1 disabled:opacity-50">
+                                                <span className="text-xl mb-1">{p === 'math' ? '➕' : p === 'ifelse' ? '🌿' : '🔁'}</span>
+                                                <span className="text-[10px] font-bold text-white">{p === 'math' ? 'MATH' : p === 'ifelse' ? 'IF-ELSE' : 'FOR'}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* PHASE: ROLL DICE */}
+                                {gameState.phase === 'roll' && (
+                                    <button disabled={loading || isAnimating} onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/roll`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                        className="bg-[#81b64c] text-white px-8 py-4 font-black text-xl rounded-xl shadow-[0_5px_0_#4a672d] active:shadow-[0_2px_0_#4a672d] active:translate-y-[3px] transition-all tracking-widest w-full disabled:opacity-50">
+                                        🎲 ROLL
+                                    </button>
+                                )}
+
+                                {/* PHASE: ACTION - MATH */}
+                                {gameState.phase === 'action' && gameState.selectedPower === 'math' && (
+                                    <div className="w-full">
+                                        <p className="text-gray-400 text-[10px] text-center mb-2">Dice: {gameState.lastRoll} • Tile Value: {gameState.tileValues[currentPlayer?.pos || 0] || 0}</p>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            {['+', '-', '*', '/'].map(op => (
+                                                <button key={op} disabled={loading || isAnimating} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, { operator: op }, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                                    className="bg-blue-600 hover:bg-blue-500 p-3 rounded-xl font-black text-xl text-white transition-colors disabled:opacity-50">
+                                                    {op === '*' ? '×' : op === '/' ? '÷' : op}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* PHASE: ACTION - FOR LOOP */}
+                                {gameState.phase === 'action' && gameState.selectedPower === 'forloop' && (
+                                    <div className="w-full text-center">
+                                        <p className="text-gray-300 text-[10px] mb-3">Loop {Math.min(gameState.tileValues[currentPlayer?.pos || 0] || 1, 3)}× moving {gameState.lastRoll} tiles each</p>
+                                        <button disabled={loading || isAnimating} onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/action`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                            className="bg-amber-600 hover:bg-amber-500 text-white px-6 py-3 font-bold rounded-xl w-full disabled:opacity-50 text-sm">
+                                            🔁 START LOOP
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* PHASE: ACTION - IF-ELSE BUILDER */}
+                                {gameState.phase === 'action' && gameState.selectedPower === 'ifelse' && gameState.ifelseOptions && (
+                                    <div className="w-full space-y-2 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                                        <div className="bg-[#1e1c1a] p-2 rounded-xl border border-[#45423d]">
+                                            <p className="text-blue-400 text-[9px] font-bold uppercase tracking-widest mb-1.5">1. IF Condition</p>
+                                            {gameState.ifelseOptions.conditions.map(c => (
+                                                <button key={c.id} onClick={() => setSelectedCondition(c.id)}
+                                                    className={`w-full text-left p-2 rounded-lg text-[10px] mb-1 transition-colors ${selectedCondition === c.id ? 'bg-blue-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
+                                                    {c.text}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="bg-[#1e1c1a] p-2 rounded-xl border border-[#45423d]">
+                                            <p className="text-emerald-400 text-[9px] font-bold uppercase tracking-widest mb-1.5">2. THEN Output</p>
+                                            {[...gameState.ifelseOptions.positive, ...gameState.ifelseOptions.neutral].map(o => (
+                                                <button key={o.id} onClick={() => setSelectedThen(o.id)}
+                                                    className={`w-full text-left p-2 rounded-lg text-[10px] mb-1 transition-colors ${selectedThen === o.id ? 'bg-emerald-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
+                                                    {o.text}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="bg-[#1e1c1a] p-2 rounded-xl border border-[#45423d]">
+                                            <p className="text-rose-400 text-[9px] font-bold uppercase tracking-widest mb-1.5">3. ELSE Output</p>
+                                            {[...gameState.ifelseOptions.negative, ...gameState.ifelseOptions.neutral].map(o => (
+                                                <button key={o.id} onClick={() => setSelectedElse(o.id)}
+                                                    className={`w-full text-left p-2 rounded-lg text-[10px] mb-1 transition-colors ${selectedElse === o.id ? 'bg-rose-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
+                                                    {o.text}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <button disabled={loading || isAnimating || !selectedCondition || !selectedThen || !selectedElse}
+                                            onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/action`, { condition: selectedCondition, then_output: selectedThen, else_output: selectedElse }, { preserveState: true, onFinish: () => { setLoading(false); setSelectedCondition(null); setSelectedThen(null); setSelectedElse(null); } }); }}
+                                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 font-bold rounded-xl w-full disabled:opacity-50 text-xs">
+                                            COMPILE & RUN
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        ) : gameState.status === 'playing' ? (
+                            <div className="w-full text-center mt-4">
+                                <p className="text-gray-400 animate-pulse font-bold text-xs tracking-widest">WAITING...</p>
+                            </div>
+                        ) : null}
+                        
+                        {gameState.status === 'playing' && (
+                            <div className="flex justify-between items-center mt-4 w-full">
+                                <button 
+                                    onClick={() => { if (confirm('Are you sure you want to surrender?')) router.post(`/rooms/${room.code}/leave`); }}
+                                    className="text-[#ef4444] hover:text-[#f87171] font-bold text-[10px] flex items-center gap-1.5 transition-colors">
+                                    🏳️ SURRENDER
+                                </button>
+                                <button 
+                                    onClick={() => { playSfx('click'); setShowSettings(true); }}
+                                    className="text-gray-400 hover:text-white transition-colors p-2 bg-[#1e1c1a] rounded-full border border-[#45423d]">
+                                    <Settings className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Right Panel: Zoom Controls */}
+                <div className="absolute top-1/2 right-4 -translate-y-1/2 z-[100] flex flex-col gap-2 pointer-events-auto">
+                    <button 
+                        onClick={() => { playSfx('click'); setMapZoom(z => Math.min(z + 0.15, 2)); }} 
+                        className="bg-[#2b2926]/90 p-3 rounded-2xl border border-[#45423d] text-gray-300 hover:text-white hover:bg-[#3d3a36] shadow-2xl active:scale-95 transition-all backdrop-blur-md"
+                        title="Zoom In"
+                    >
+                        <ZoomIn className="w-5 h-5" />
+                    </button>
+                    <button 
+                        onClick={() => { playSfx('click'); setMapZoom(z => Math.max(z - 0.15, 0.4)); }} 
+                        className="bg-[#2b2926]/90 p-3 rounded-2xl border border-[#45423d] text-gray-300 hover:text-white hover:bg-[#3d3a36] shadow-2xl active:scale-95 transition-all backdrop-blur-md"
+                        title="Zoom Out"
+                    >
+                        <ZoomOut className="w-5 h-5" />
+                    </button>
                 </div>
 
                 {/* Map Container - Now Draggable! */}
@@ -956,126 +1105,6 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                         </motion.div>
                     </div>
                 )}
-
-                {/* Bottom Panel */}
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto max-w-lg w-full px-4">
-                    <div className="bg-[#2b2926] p-6 rounded-3xl border border-[#45423d] shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex flex-col items-center">
-                        <div className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">
-                            Current Turn: <span style={{ color: currentPlayer?.color }}>{currentPlayer?.name}</span>
-                            {gameState.lastRoll && <span className="ml-3 text-yellow-400">🎲 {gameState.lastRoll}</span>}
-                        </div>
-                        
-                        {isMyTurn && gameState.status === 'playing' ? (
-                            <div className="w-full flex flex-col items-center gap-3 mt-2">
-                                
-                                {/* PHASE: SELECT POWER */}
-                                {gameState.phase === 'select' && (
-                                    <div className="flex gap-2">
-                                        {(['math', 'ifelse', 'forloop'] as const).map(p => (
-                                            <button key={p} disabled={loading || isAnimating} onClick={() => { playSfx('power-select'); setLoading(true); router.post(`/rooms/${room.code}/select-power`, { power: p }, { preserveState: true, onFinish: () => setLoading(false) }); }}
-                                                className="bg-[#3d3a36] hover:bg-[#81b64c] p-3 rounded-xl flex flex-col items-center transition-colors border border-[#45423d] min-w-[70px] disabled:opacity-50">
-                                                <span className="text-xl mb-1">{p === 'math' ? '➕' : p === 'ifelse' ? '🌿' : '🔁'}</span>
-                                                <span className="text-[10px] font-bold text-white">{p === 'math' ? 'MATH' : p === 'ifelse' ? 'IF-ELSE' : 'FOR'}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {/* PHASE: ROLL DICE */}
-                                {gameState.phase === 'roll' && (
-                                    <button disabled={loading || isAnimating} onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/roll`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
-                                        className="bg-[#81b64c] text-white px-12 py-4 font-black text-xl rounded-xl shadow-[0_5px_0_#4a672d] active:shadow-[0_2px_0_#4a672d] active:translate-y-[3px] transition-all tracking-widest w-full disabled:opacity-50">
-                                        🎲 ROLL DICE
-                                    </button>
-                                )}
-
-                                {/* PHASE: ACTION - MATH */}
-                                {gameState.phase === 'action' && gameState.selectedPower === 'math' && (
-                                    <div className="w-full">
-                                        <p className="text-gray-400 text-xs text-center mb-2">Dice: {gameState.lastRoll} • Tile Value: {gameState.tileValues[currentPlayer?.pos || 0] || 0}</p>
-                                        <div className="grid grid-cols-4 gap-2">
-                                            {['+', '-', '*', '/'].map(op => (
-                                                <button key={op} disabled={loading || isAnimating} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, { operator: op }, { preserveState: true, onFinish: () => setLoading(false) }); }}
-                                                    className="bg-blue-600 hover:bg-blue-500 p-3 rounded-xl font-black text-2xl text-white transition-colors disabled:opacity-50">
-                                                    {op === '*' ? '×' : op === '/' ? '÷' : op}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* PHASE: ACTION - FOR LOOP */}
-                                {gameState.phase === 'action' && gameState.selectedPower === 'forloop' && (
-                                    <div className="w-full text-center">
-                                        <p className="text-gray-300 text-sm mb-3">Loop {Math.min(gameState.tileValues[currentPlayer?.pos || 0] || 1, 3)}× moving {gameState.lastRoll} tiles each</p>
-                                        <button disabled={loading || isAnimating} onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/action`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
-                                            className="bg-amber-600 hover:bg-amber-500 text-white px-8 py-3 font-bold rounded-xl w-full disabled:opacity-50">
-                                            🔁 START LOOP
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* PHASE: ACTION - IF-ELSE BUILDER */}
-                                {gameState.phase === 'action' && gameState.selectedPower === 'ifelse' && gameState.ifelseOptions && (
-                                    <div className="w-full space-y-3 max-h-[300px] overflow-y-auto">
-                                        <div className="bg-[#1e1c1a] p-3 rounded-xl border border-[#45423d]">
-                                            <p className="text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-2">1. IF Condition</p>
-                                            {gameState.ifelseOptions.conditions.map(c => (
-                                                <button key={c.id} onClick={() => setSelectedCondition(c.id)}
-                                                    className={`w-full text-left p-2 rounded-lg text-xs mb-1 transition-colors ${selectedCondition === c.id ? 'bg-blue-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
-                                                    {c.text}
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <div className="bg-[#1e1c1a] p-3 rounded-xl border border-[#45423d]">
-                                            <p className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest mb-2">2. THEN Output</p>
-                                            {[...gameState.ifelseOptions.positive, ...gameState.ifelseOptions.neutral].map(o => (
-                                                <button key={o.id} onClick={() => setSelectedThen(o.id)}
-                                                    className={`w-full text-left p-2 rounded-lg text-xs mb-1 transition-colors ${selectedThen === o.id ? 'bg-emerald-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
-                                                    {o.text}
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <div className="bg-[#1e1c1a] p-3 rounded-xl border border-[#45423d]">
-                                            <p className="text-rose-400 text-[10px] font-bold uppercase tracking-widest mb-2">3. ELSE Output</p>
-                                            {[...gameState.ifelseOptions.negative, ...gameState.ifelseOptions.neutral].map(o => (
-                                                <button key={o.id} onClick={() => setSelectedElse(o.id)}
-                                                    className={`w-full text-left p-2 rounded-lg text-xs mb-1 transition-colors ${selectedElse === o.id ? 'bg-rose-600 text-white' : 'bg-[#2b2926] text-gray-300 hover:bg-[#3d3a36]'}`}>
-                                                    {o.text}
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <button disabled={loading || isAnimating || !selectedCondition || !selectedThen || !selectedElse}
-                                            onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/action`, { condition: selectedCondition, then_output: selectedThen, else_output: selectedElse }, { preserveState: true, onFinish: () => { setLoading(false); setSelectedCondition(null); setSelectedThen(null); setSelectedElse(null); } }); }}
-                                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3 font-bold rounded-xl w-full disabled:opacity-50">
-                                            COMPILE & RUN
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        ) : gameState.status === 'playing' ? (
-                            <div className="w-full text-center mt-4">
-                                <p className="text-gray-400 animate-pulse font-bold text-sm tracking-widest">WAITING...</p>
-                            </div>
-                        ) : null}
-                        
-                        {gameState.status === 'playing' && (
-                            <div className="flex justify-between items-center mt-4">
-                                <button 
-                                    onClick={() => { if (confirm('Are you sure you want to surrender?')) router.post(`/rooms/${room.code}/leave`); }}
-                                    className="text-[#ef4444] hover:text-[#f87171] font-bold text-xs flex items-center gap-2 transition-colors">
-                                    🏳️ SURRENDER
-                                </button>
-                                <button 
-                                    onClick={() => { playSfx('click'); setShowSettings(true); }}
-                                    className="text-gray-400 hover:text-white transition-colors p-2 bg-[#1e1c1a] rounded-full border border-[#45423d]">
-                                    <Settings className="w-4 h-4" />
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
             </div>
             
             <GameToast toasts={toasts} removeToast={removeToast} />
