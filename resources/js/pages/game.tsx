@@ -1,5 +1,5 @@
 import { Head, router } from '@inertiajs/react';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { echo } from '@laravel/echo-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, X } from 'lucide-react';
@@ -52,7 +52,10 @@ interface Room {
     max_players: number;
     game_state: GameState;
     players: any[];
+    timer_ends_at?: string;
 }
+
+type TileCoordinates = Record<number, { x: number, y: number }>;
 
 // Simple Seeded Random Number Generator to ensure all players see the exact same organic board
 function createSeededRandom(seed: number) {
@@ -63,47 +66,89 @@ function createSeededRandom(seed: number) {
         return (s - 1) / 2147483646;
     };
 }
+// DiceFace — renders dice dots in the correct pattern for a given value (1-6)
+function DiceFace({ value, size = 80 }: { value: number, size?: number }) {
+    const dotSize = size * 0.16;
+    const pad = size * 0.22;
+    const mid = size / 2;
 
-function PlayerAvatar({ p, idx, tileCoordinates }: { p: Player, idx: number, tileCoordinates: TileCoordinates }) {
+    // Positions: top-left, top-right, middle-left, center, middle-right, bottom-left, bottom-right
+    const positions: Record<number, [number, number][]> = {
+        1: [[mid, mid]],
+        2: [[size - pad, pad], [pad, size - pad]],
+        3: [[size - pad, pad], [mid, mid], [pad, size - pad]],
+        4: [[pad, pad], [size - pad, pad], [pad, size - pad], [size - pad, size - pad]],
+        5: [[pad, pad], [size - pad, pad], [mid, mid], [pad, size - pad], [size - pad, size - pad]],
+        6: [[pad, pad], [pad, mid], [pad, size - pad], [size - pad, pad], [size - pad, mid], [size - pad, size - pad]],
+    };
+
+    const dots = positions[value] || positions[1];
+
+    return (
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+            {dots.map(([cx, cy], i) => (
+                <circle key={i} cx={cx} cy={cy} r={dotSize} fill="#1e293b" />
+            ))}
+        </svg>
+    );
+}
+
+function PlayerAvatar({ p, idx, tileCoordinates, onHopSfx, onHopStep }: { p: Player, idx: number, tileCoordinates: TileCoordinates, onHopSfx: () => void, onHopStep?: (tilePos: number) => void }) {
     const [pathCoords, setPathCoords] = useState<{left: number, top: number}[]>([]);
     const prevPosRef = useRef(p.pos);
-    const { playSfx } = useSoundEffects();
+    const hopSpeedRef = useRef(200);
 
     useEffect(() => {
         const oldPos = prevPosRef.current;
         const newPos = p.pos;
-        let newPath = [];
+        const newPath: {left: number, top: number}[] = [];
+        const tilePath: number[] = []; // track tile positions for camera follow
 
-        if (oldPos !== newPos && Math.abs(newPos - oldPos) <= 12) {
+        if (oldPos !== newPos && Math.abs(newPos - oldPos) <= 25) {
             const step = newPos > oldPos ? 1 : -1;
             for (let i = oldPos; i !== newPos + step; i += step) {
                 const c = tileCoordinates[i];
-                if (c) newPath.push({ left: c.x + 13 + (idx * 5), top: c.y + 5 + (idx * 5) });
+                if (c) {
+                    newPath.push({ left: c.x + 13 + (idx * 5), top: c.y + 5 + (idx * 5) });
+                    tilePath.push(i);
+                }
             }
         } else {
             const c = tileCoordinates[newPos];
-            if (c) newPath.push({ left: c.x + 13 + (idx * 5), top: c.y + 5 + (idx * 5) });
+            if (c) {
+                newPath.push({ left: c.x + 13 + (idx * 5), top: c.y + 5 + (idx * 5) });
+                tilePath.push(newPos);
+            }
         }
 
+        // Dynamic hop speed — faster for longer distances
+        const hopSpeed = newPath.length > 16 ? 100 : newPath.length > 9 ? 150 : 200;
+        hopSpeedRef.current = hopSpeed;
+
+        // Always update path coords so the avatar actually moves
+        setPathCoords(newPath);
+        prevPosRef.current = newPos;
+
         if (newPath.length > 1) {
-            // It's a hop
-            let hopIndex = 0;
+            // It's a multi-tile hop — play hop sound + notify camera at each step
+            let hopIndex = 1; // Start at 1 to skip the starting position
             const hopInterval = setInterval(() => {
                 if (hopIndex < newPath.length) {
-                    playSfx('hop');
+                    onHopSfx();
+                    // Notify parent about current tile for camera follow (every 3 tiles)
+                    if (onHopStep && tilePath[hopIndex] && hopIndex % 3 === 0) {
+                        onHopStep(tilePath[hopIndex]);
+                    }
                     hopIndex++;
                 } else {
                     clearInterval(hopInterval);
                 }
-            }, 200);
+            }, hopSpeed);
             
             // Clean up on unmount or new animation
             return () => clearInterval(hopInterval);
         }
-
-        setPathCoords(newPath);
-        prevPosRef.current = newPos;
-    }, [p.pos, idx, tileCoordinates, playSfx]);
+    }, [p.pos, idx, tileCoordinates, onHopSfx, onHopStep]);
 
     if (pathCoords.length === 0) return null;
 
@@ -128,7 +173,7 @@ function PlayerAvatar({ p, idx, tileCoordinates }: { p: Player, idx: number, til
                 z: 60
             }}
             transition={{ 
-                duration: pathCoords.length > 1 ? pathCoords.length * 0.2 : 0.5,
+                duration: pathCoords.length > 1 ? pathCoords.length * (hopSpeedRef.current / 1000) : 0.5,
                 ease: "easeInOut" 
             }}
             className="absolute"
@@ -157,6 +202,7 @@ function PlayerAvatar({ p, idx, tileCoordinates }: { p: Player, idx: number, til
 export default function Game({ room, currentUser, isOwner }: { room: Room, currentUser: any, isOwner: boolean }) {
     const [gameState, setGameState] = useState<GameState>(room.game_state);
     const [loading, setLoading] = useState(false);
+    const [isAnimating, setIsAnimating] = useState(false); // Blocks interactions during movement animation
     
     // If-Else builder local state
     const [selectedCondition, setSelectedCondition] = useState<string | null>(null);
@@ -196,8 +242,8 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
     useEffect(() => {
         if (gameState.status === 'playing') {
             playBgm('game');
-        } else if (gameState.status === 'waiting') {
-            playBgm('lobby');
+        } else if (gameState.status === 'finished') {
+            playBgm('victory');
         }
         return () => stopBgm();
     }, [gameState.status, playBgm, stopBgm]);
@@ -417,34 +463,126 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         });
     };
 
-    // Auto-pan when the turn changes OR when the current player's position changes
+    // Auto-pan: follow the moving player, then switch to the next player with a delay
     const prevTurnIdx = useRef(gameState.currentPlayerIndex);
-    const prevPos = useRef(gameState.players[gameState.currentPlayerIndex]?.pos ?? 1);
+    const prevPositionsRef = useRef<Record<number, number>>({});
     const initialPanDone = useRef(false);
+    const hopFollowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const turnBannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Camera follow callback for PlayerAvatar hop steps
+    const handleHopStep = useCallback((tilePos: number) => {
+        panToTile(tilePos);
+    }, []);
 
     useEffect(() => {
         if (!gameState || !gameState.players) return;
         const cp = gameState.players[gameState.currentPlayerIndex];
         if (!cp) return;
 
-        const turnChanged = prevTurnIdx.current !== gameState.currentPlayerIndex;
-        const posChanged = prevPos.current !== cp.pos;
+        // Clear any pending timers from previous updates
+        if (hopFollowTimer.current) { clearTimeout(hopFollowTimer.current); hopFollowTimer.current = null; }
+        if (turnBannerTimer.current) { clearTimeout(turnBannerTimer.current); turnBannerTimer.current = null; }
 
-        if (turnChanged) {
-            setTurnBanner({ name: cp.name, color: cp.color });
-            playSfx('turn-start');
-            setTimeout(() => setTurnBanner(null), 2500);
+        const turnChanged = prevTurnIdx.current !== gameState.currentPlayerIndex;
+
+        // Detect which player moved and by how much
+        let movedPlayerPos = -1;
+        let movedPlayerOldPos = -1;
+        let hopDistance = 0;
+
+        gameState.players.forEach(p => {
+            const oldPos = prevPositionsRef.current[p.id];
+            if (oldPos !== undefined && oldPos !== p.pos) {
+                const dist = Math.abs(p.pos - oldPos);
+                if (dist > hopDistance) {
+                    hopDistance = dist;
+                    movedPlayerPos = p.pos;
+                    movedPlayerOldPos = oldPos;
+                }
+            }
+        });
+
+        // Calculate hop animation duration (must match PlayerAvatar's timing)
+        const isHopping = hopDistance > 0 && hopDistance <= 25;
+        const pathLen = hopDistance + 1;
+        const hopSpeed = pathLen > 16 ? 100 : pathLen > 9 ? 150 : 200;
+        const hopDuration = isHopping ? pathLen * hopSpeed + 400 : 0;
+        const TURN_DELAY = 1500; // Delay between moves for dramatic effect
+
+        // Initialize positions on first render
+        if (Object.keys(prevPositionsRef.current).length === 0) {
+            const positions: Record<number, number> = {};
+            gameState.players.forEach(p => { positions[p.id] = p.pos; });
+            prevPositionsRef.current = positions;
         }
 
-        if (turnChanged || posChanged || (!initialPanDone.current && Object.keys(tileCoordinates).length > 0)) {
-            panToTile(cp.pos);
-            if (Object.keys(tileCoordinates).length > 0) {
-                initialPanDone.current = true;
+        if (isHopping && movedPlayerOldPos > 0) {
+            // Lock interactions during the entire animation sequence
+            setIsAnimating(true);
+
+            // Pan camera to the destination — the CSS transition makes it smooth
+            panToTile(movedPlayerPos);
+
+            // After the hop animation + turn delay, show turn banner and unlock
+            if (turnChanged) {
+                hopFollowTimer.current = setTimeout(() => {
+                    setTurnBanner({ name: cp.name || `Player ${cp.id}`, color: cp.color });
+                    playSfx('turn-start');
+                    turnBannerTimer.current = setTimeout(() => setTurnBanner(null), 2500);
+                    panToTile(cp.pos);
+                    // Unlock interactions after camera settles
+                    setTimeout(() => setIsAnimating(false), 800);
+                }, hopDuration + TURN_DELAY);
+            } else {
+                // Same player moved (e.g. snake/ladder follow-up), just unlock after animation
+                hopFollowTimer.current = setTimeout(() => {
+                    setIsAnimating(false);
+                }, hopDuration + 500);
+            }
+        } else if (hopDistance > 25 && movedPlayerPos > 0) {
+            // Large teleport (snake/ladder) — cinematic pan to destination
+            setIsAnimating(true);
+            panToTile(movedPlayerPos);
+
+            if (turnChanged) {
+                hopFollowTimer.current = setTimeout(() => {
+                    setTurnBanner({ name: cp.name || `Player ${cp.id}`, color: cp.color });
+                    playSfx('turn-start');
+                    turnBannerTimer.current = setTimeout(() => setTurnBanner(null), 2500);
+                    panToTile(cp.pos);
+                    setTimeout(() => setIsAnimating(false), 800);
+                }, 1500 + TURN_DELAY);
+            } else {
+                hopFollowTimer.current = setTimeout(() => {
+                    setIsAnimating(false);
+                }, 2000);
+            }
+        } else {
+            // No hop animation — handle turn change and camera immediately
+            if (turnChanged) {
+                setTurnBanner({ name: cp.name || `Player ${cp.id}`, color: cp.color });
+                playSfx('turn-start');
+                turnBannerTimer.current = setTimeout(() => setTurnBanner(null), 2500);
+            }
+
+            if (turnChanged || (!initialPanDone.current && Object.keys(tileCoordinates).length > 0)) {
+                panToTile(cp.pos);
+                if (Object.keys(tileCoordinates).length > 0) {
+                    initialPanDone.current = true;
+                }
             }
         }
 
+        // Update tracked positions and turn index
+        const newPositions: Record<number, number> = {};
+        gameState.players.forEach(p => { newPositions[p.id] = p.pos; });
+        prevPositionsRef.current = newPositions;
         prevTurnIdx.current = gameState.currentPlayerIndex;
-        prevPos.current = cp.pos;
+
+        return () => {
+            if (hopFollowTimer.current) clearTimeout(hopFollowTimer.current);
+        };
     }, [gameState.currentPlayerIndex, gameState.players, tileCoordinates, playSfx]);
 
     const prevPhase = useRef(gameState.phase);
@@ -452,7 +590,10 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         if (prevPhase.current === 'roll' && gameState.phase === 'action' && gameState.lastRoll !== null) {
             playSfx('dice-roll');
             setShowDiceAnim({ result: gameState.lastRoll, tumbling: true });
-            setTimeout(() => setShowDiceAnim(prev => prev ? {...prev, tumbling: false} : null), 1500);
+            setTimeout(() => {
+                setShowDiceAnim(prev => prev ? {...prev, tumbling: false} : null);
+                playSfx('dice-land');
+            }, 1500);
             setTimeout(() => setShowDiceAnim(null), 2500);
         }
         prevPhase.current = gameState.phase;
@@ -463,12 +604,64 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         if (gameState.log.length > prevLogLen.current) {
             const newLogs = gameState.log.slice(prevLogLen.current);
             newLogs.forEach(log => {
-                if (log.includes('found a LADDER') || log.includes('teleported to ladder')) { addToast('success', 'Ladder!', log); playSfx('ladder-climb'); }
-                else if (log.includes('bitten by a SNAKE')) { addToast('danger', 'Snake!', log); playSfx('snake-slide'); }
-                else if (log.includes('stepped on a TRAP')) { addToast('warning', 'Trap Triggered!', log); playSfx('trap-activate'); }
-                else if (log.includes('has been eliminated')) { addToast('elimination', 'Player Eliminated', log); playSfx('error'); }
-                else if (log.includes('WINS THE GAME')) { addToast('victory', 'Game Over', log); playSfx('success'); }
-                else if (log.includes('moved to')) playSfx('click');
+                // Ladder events
+                if (log.includes('found a LADDER') || log.includes('teleported to ladder') || log.includes('climbed to tile')) {
+                    addToast('success', '🪜 Ladder!', log);
+                    playSfx('ladder-climb');
+                }
+                // Snake events
+                else if (log.includes('landed on a SNAKE') || log.includes('teleported to snake') || log.includes('slid down to tile')) {
+                    addToast('danger', '🐍 Snake!', log);
+                    playSfx('snake-slide');
+                }
+                // IF-ELSE trap set (warning) — no trap SFX here, just a subtle click
+                else if (log.includes('set IF-ELSE trap')) {
+                    addToast('warning', '⚠️ Trap Set!', log);
+                    playSfx('click');
+                }
+                // IF-ELSE trap triggered
+                else if (log.includes('IF-ELSE trap triggered')) {
+                    addToast('warning', '⚡ Trap Triggered!', log);
+                    playSfx('trap-activate');
+                }
+                // IF-ELSE trap expired (ELSE activating)
+                else if (log.includes('IF-ELSE trap expired')) {
+                    addToast('info', '🔄 Trap Expired', log);
+                    playSfx('trap-activate');
+                }
+                // Stomp/collision events
+                else if (log.includes('stomped on')) {
+                    addToast('danger', '⚔️ Stomped!', log);
+                    playSfx('stomp');
+                }
+                // Elimination
+                else if (log.includes('ELIMINATED') || log.includes('has been eliminated')) {
+                    addToast('elimination', '💀 Eliminated!', log);
+                    playSfx('error');
+                }
+                // HP loss (sent back to start)
+                else if (log.includes('-1 HP') || log.includes('sent back to START')) {
+                    addToast('danger', '💔 HP Lost!', log);
+                    playSfx('hp-loss');
+                }
+                // Victory / finish line
+                else if (log.includes('WINS') || log.includes('WINNER') || log.includes('Game Over')) {
+                    addToast('victory', '🏆 Game Over!', log);
+                    playSfx('success');
+                }
+                else if (log.includes('crossed the FINISH LINE')) {
+                    addToast('victory', '🏁 Finished!', log);
+                    playSfx('success');
+                }
+                // Kicked back
+                else if (log.includes('Kicked') && log.includes('back')) {
+                    addToast('danger', '💥 Kicked!', log);
+                    playSfx('hp-loss');
+                }
+                // Generic movement
+                else if (log.includes('moved to') || log.includes('moved') && log.includes('tiles')) {
+                    playSfx('click');
+                }
             });
         }
         prevLogLen.current = gameState.log.length;
@@ -505,9 +698,13 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
         return tiles;
     };
 
+    const handleHopSfx = useCallback(() => {
+        playSfx('hop');
+    }, [playSfx]);
+
     const renderAvatars = () => {
         return gameState.players.filter(p => p.alive).map((p, idx) => (
-            <PlayerAvatar key={p.id} p={p} idx={idx} tileCoordinates={tileCoordinates} />
+            <PlayerAvatar key={p.id} p={p} idx={idx} tileCoordinates={tileCoordinates} onHopSfx={handleHopSfx} onHopStep={handleHopStep} />
         ));
     };
 
@@ -689,8 +886,8 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                     <div 
                         className="map-container" 
                         style={{ 
-                            transform: `translate(${pan.x}px, ${pan.y}px) rotateX(50deg) rotateZ(-30deg) scale(${mapZoom})`,
-                            transition: isDragging.current ? 'none' : 'transform 0.6s cubic-bezier(0.25, 1, 0.5, 1)'
+                            transform: `translate(${pan.x}px, ${pan.y}px) rotateX(50deg) rotateZ(-30deg) scale3d(${mapZoom}, ${mapZoom}, ${mapZoom})`,
+                            transition: isDragging.current ? 'none' : 'transform 1.2s cubic-bezier(0.25, 1, 0.5, 1)'
                         }}
                     >
                         {renderBoard()}
@@ -775,7 +972,7 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                 {gameState.phase === 'select' && (
                                     <div className="flex gap-2">
                                         {(['math', 'ifelse', 'forloop'] as const).map(p => (
-                                            <button key={p} disabled={loading} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/select-power`, { power: p }, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                            <button key={p} disabled={loading || isAnimating} onClick={() => { playSfx('power-select'); setLoading(true); router.post(`/rooms/${room.code}/select-power`, { power: p }, { preserveState: true, onFinish: () => setLoading(false) }); }}
                                                 className="bg-[#3d3a36] hover:bg-[#81b64c] p-3 rounded-xl flex flex-col items-center transition-colors border border-[#45423d] min-w-[70px] disabled:opacity-50">
                                                 <span className="text-xl mb-1">{p === 'math' ? '➕' : p === 'ifelse' ? '🌿' : '🔁'}</span>
                                                 <span className="text-[10px] font-bold text-white">{p === 'math' ? 'MATH' : p === 'ifelse' ? 'IF-ELSE' : 'FOR'}</span>
@@ -786,7 +983,7 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
 
                                 {/* PHASE: ROLL DICE */}
                                 {gameState.phase === 'roll' && (
-                                    <button disabled={loading} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/roll`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                    <button disabled={loading || isAnimating} onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/roll`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
                                         className="bg-[#81b64c] text-white px-12 py-4 font-black text-xl rounded-xl shadow-[0_5px_0_#4a672d] active:shadow-[0_2px_0_#4a672d] active:translate-y-[3px] transition-all tracking-widest w-full disabled:opacity-50">
                                         🎲 ROLL DICE
                                     </button>
@@ -798,7 +995,7 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                         <p className="text-gray-400 text-xs text-center mb-2">Dice: {gameState.lastRoll} • Tile Value: {gameState.tileValues[currentPlayer?.pos || 0] || 0}</p>
                                         <div className="grid grid-cols-4 gap-2">
                                             {['+', '-', '*', '/'].map(op => (
-                                                <button key={op} disabled={loading} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, { operator: op }, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                                <button key={op} disabled={loading || isAnimating} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, { operator: op }, { preserveState: true, onFinish: () => setLoading(false) }); }}
                                                     className="bg-blue-600 hover:bg-blue-500 p-3 rounded-xl font-black text-2xl text-white transition-colors disabled:opacity-50">
                                                     {op === '*' ? '×' : op === '/' ? '÷' : op}
                                                 </button>
@@ -811,7 +1008,7 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                 {gameState.phase === 'action' && gameState.selectedPower === 'forloop' && (
                                     <div className="w-full text-center">
                                         <p className="text-gray-300 text-sm mb-3">Loop {Math.min(gameState.tileValues[currentPlayer?.pos || 0] || 1, 3)}× moving {gameState.lastRoll} tiles each</p>
-                                        <button disabled={loading} onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
+                                        <button disabled={loading || isAnimating} onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/action`, {}, { preserveState: true, onFinish: () => setLoading(false) }); }}
                                             className="bg-amber-600 hover:bg-amber-500 text-white px-8 py-3 font-bold rounded-xl w-full disabled:opacity-50">
                                             🔁 START LOOP
                                         </button>
@@ -848,8 +1045,8 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                                 </button>
                                             ))}
                                         </div>
-                                        <button disabled={loading || !selectedCondition || !selectedThen || !selectedElse}
-                                            onClick={() => { setLoading(true); router.post(`/rooms/${room.code}/action`, { condition: selectedCondition, then_output: selectedThen, else_output: selectedElse }, { preserveState: true, onFinish: () => { setLoading(false); setSelectedCondition(null); setSelectedThen(null); setSelectedElse(null); } }); }}
+                                        <button disabled={loading || isAnimating || !selectedCondition || !selectedThen || !selectedElse}
+                                            onClick={() => { playSfx('click'); setLoading(true); router.post(`/rooms/${room.code}/action`, { condition: selectedCondition, then_output: selectedThen, else_output: selectedElse }, { preserveState: true, onFinish: () => { setLoading(false); setSelectedCondition(null); setSelectedThen(null); setSelectedElse(null); } }); }}
                                             className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3 font-bold rounded-xl w-full disabled:opacity-50">
                                             COMPILE & RUN
                                         </button>
@@ -870,7 +1067,7 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                     🏳️ SURRENDER
                                 </button>
                                 <button 
-                                    onClick={() => setShowSettings(true)}
+                                    onClick={() => { playSfx('click'); setShowSettings(true); }}
                                     className="text-gray-400 hover:text-white transition-colors p-2 bg-[#1e1c1a] rounded-full border border-[#45423d]">
                                     <Settings className="w-4 h-4" />
                                 </button>
@@ -892,11 +1089,9 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                         exit={{ opacity: 0 }}
                         className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 pointer-events-auto"
                     >
-                        <motion.div 
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
+                        <div 
                             className="bg-[#2b2926] p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-[#45423d] relative"
+                            onClick={(e) => e.stopPropagation()}
                         >
                             <button 
                                 onClick={() => setShowSettings(false)}
@@ -916,7 +1111,7 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                         step="0.01" 
                                         value={bgmVolume} 
                                         onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
-                                        className="w-full accent-primary"
+                                        className="w-full accent-primary cursor-pointer"
                                     />
                                 </div>
                                 <div>
@@ -928,11 +1123,11 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                                         step="0.01" 
                                         value={sfxVolume} 
                                         onChange={(e) => setSfxVolume(parseFloat(e.target.value))}
-                                        className="w-full accent-secondary"
+                                        className="w-full accent-secondary cursor-pointer"
                                     />
                                 </div>
                             </div>
-                        </motion.div>
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -1009,9 +1204,9 @@ export default function Game({ room, currentUser, isOwner }: { room: Room, curre
                             <motion.div 
                                 initial={{ scale: 0, rotate: -180 }}
                                 animate={{ scale: 1.5, rotate: 0 }}
-                                className="w-32 h-32 bg-white rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.5)] flex items-center justify-center text-7xl font-black text-slate-800 border-8 border-primary"
+                                className="w-32 h-32 bg-white rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.5)] flex items-center justify-center border-8 border-primary p-4"
                             >
-                                {showDiceAnim.result}
+                                <DiceFace value={showDiceAnim.result} size={80} />
                             </motion.div>
                         )}
                     </motion.div>

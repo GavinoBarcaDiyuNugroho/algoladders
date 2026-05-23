@@ -1,9 +1,10 @@
 import { Head, router } from '@inertiajs/react';
 import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'motion/react';
-import { Users, Crown, CheckCircle2, Circle, Copy, Check } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Users, Crown, CheckCircle2, Circle, Copy, Check, Settings, X } from 'lucide-react';
 import { echo } from '@laravel/echo-react';
 import { useHeartbeat } from '../hooks/useHeartbeat';
+import { useSoundEffects } from '../hooks/useSoundEffects';
 
 interface Player {
     id: number;
@@ -34,6 +35,14 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
     const isOwner = currentUser.id === ownerId;
 
     useHeartbeat(room.code);
+    const { playSfx, playBgm, stopBgm, bgmVolume, setBgmVolume, sfxVolume, setSfxVolume } = useSoundEffects();
+    const [showSettings, setShowSettings] = useState(false);
+
+    // Play lobby BGM
+    useEffect(() => {
+        playBgm('lobby');
+        return () => stopBgm();
+    }, [playBgm, stopBgm]);
 
     // Listen to GameStarted, RoomClosed, PlayerLeft, PlayerJoined, and Presence
     useEffect(() => {
@@ -98,6 +107,7 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
     }, [room.players]);
 
     const toggleReady = () => {
+        playSfx('click');
         router.post(`/rooms/${room.code}/ready`, {}, {
             preserveScroll: true,
             preserveState: true,
@@ -106,6 +116,7 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
 
     const startGame = () => {
         if (!canStart || countdown !== null) return;
+        playSfx('countdown');
         setCountdown(3);
         let count = 3;
         const interval = setInterval(() => {
@@ -125,10 +136,11 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
     };
 
     const copyCode = useCallback(() => {
+        playSfx('click');
         navigator.clipboard.writeText(room.code);
         setCodeCopied(true);
         setTimeout(() => setCodeCopied(false), 2000);
-    }, [room.code]);
+    }, [room.code, playSfx]);
 
     const me = players.find(p => p.user_id === currentUser.id);
     const allOthersReady = players.filter(p => p.user_id !== ownerId).every(p => p.is_ready);
@@ -181,7 +193,7 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
                         </div>
                         <div className="flex items-center gap-4">
                             <button 
-                                onClick={handleLeave}
+                                onClick={() => { playSfx('click'); handleLeave(); }}
                                 className="flex items-center gap-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white px-4 py-3 rounded-xl border border-red-500/20 transition-colors font-bold text-sm"
                             >
                                 LEAVE ROOM 🚪
@@ -343,8 +355,71 @@ export default function Lobby({ room, isOwner: initialIsOwner, currentUser }: { 
                         </div>
                     </motion.div>
                 </div>
+
+                {/* Settings Button */}
+                <div className="fixed bottom-6 right-6 z-50">
+                    <button 
+                        onClick={() => { playSfx('click'); setShowSettings(true); }}
+                        className="bg-card/80 backdrop-blur-md text-muted-foreground hover:text-foreground transition-colors p-3 rounded-full border border-border shadow-lg hover:shadow-xl"
+                    >
+                        <Settings className="w-5 h-5" />
+                    </button>
+                </div>
             </div>
 
+
+            {/* Settings Modal */}
+            <AnimatePresence>
+                {showSettings && (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                        onClick={() => setShowSettings(false)}
+                    >
+                        <div 
+                            className="bg-card p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-border relative"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <button 
+                                onClick={() => setShowSettings(false)}
+                                className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                            <h2 className="text-2xl font-black italic mb-6">SETTINGS</h2>
+                            
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 block">Music Volume</label>
+                                    <input 
+                                        type="range" 
+                                        min="0" 
+                                        max="1" 
+                                        step="0.01" 
+                                        value={bgmVolume} 
+                                        onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                                        className="w-full accent-primary cursor-pointer"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 block">SFX Volume</label>
+                                    <input 
+                                        type="range" 
+                                        min="0" 
+                                        max="1" 
+                                        step="0.01" 
+                                        value={sfxVolume} 
+                                        onChange={(e) => setSfxVolume(parseFloat(e.target.value))}
+                                        className="w-full accent-secondary cursor-pointer"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Full Screen Countdown Overlay */}
             {countdown !== null && (

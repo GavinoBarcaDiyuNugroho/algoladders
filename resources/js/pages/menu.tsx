@@ -1,13 +1,22 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Users, Hash, ArrowLeft, XCircle } from 'lucide-react';
+import { Plus, Users, Hash, ArrowLeft, XCircle, Settings, X, Volume2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useSoundEffects } from '../hooks/useSoundEffects';
 
 export default function Menu() {
     const { errors, auth } = usePage().props as any;
     const [joinCode, setJoinCode] = useState('');
     const [maxPlayers, setMaxPlayers] = useState('4');
     const [showError, setShowError] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const { playSfx, playBgm, stopBgm, bgmVolume, setBgmVolume, sfxVolume, setSfxVolume } = useSoundEffects();
+
+    // Play lobby BGM
+    useEffect(() => {
+        playBgm('lobby');
+        return () => stopBgm();
+    }, [playBgm, stopBgm]);
 
     useEffect(() => {
         if (errors && errors.code) {
@@ -16,12 +25,14 @@ export default function Menu() {
     }, [errors]);
 
     const handleCreateGame = () => {
+        playSfx('click');
         router.post('/rooms', { max_players: parseInt(maxPlayers) });
     };
 
     const handleJoinGame = (e: React.FormEvent) => {
         e.preventDefault();
         if (joinCode.trim()) {
+            playSfx('click');
             router.post(`/rooms/join`, { code: joinCode.toUpperCase() });
         }
     };
@@ -68,7 +79,7 @@ export default function Menu() {
                 </div>
 
                 <div className="absolute top-6 left-6 z-20">
-                    <Link href="/" className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors font-semibold bg-card/80 p-3 rounded-full shadow-sm backdrop-blur-md">
+                    <Link href="/" onClick={() => playSfx('click')} className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors font-semibold bg-card/80 p-3 rounded-full shadow-sm backdrop-blur-md">
                         <ArrowLeft className="w-5 h-5" />
                         <span className="sr-only sm:not-sr-only sm:pr-2">Back to Title</span>
                     </Link>
@@ -180,6 +191,69 @@ export default function Menu() {
                         </motion.div>
                     </div>
                 </motion.div>
+
+                {/* Settings Button */}
+                <div className="fixed bottom-6 right-6 z-50">
+                    <button 
+                        onClick={() => { playSfx('click'); setShowSettings(true); }}
+                        className="bg-card/80 backdrop-blur-md text-muted-foreground hover:text-foreground transition-colors p-3 rounded-full border border-border shadow-lg hover:shadow-xl"
+                    >
+                        <Volume2 className="w-5 h-5" />
+                    </button>
+                </div>
+
+                {/* Settings Modal */}
+                <AnimatePresence>
+                    {showSettings && (
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                            onClick={() => setShowSettings(false)}
+                        >
+                            <div 
+                                className="bg-card p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-border relative"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <button 
+                                    onClick={() => setShowSettings(false)}
+                                    className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                                <h2 className="text-2xl font-black italic mb-6">VOLUME</h2>
+                                
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 block">Music Volume</label>
+                                        <input 
+                                            type="range" 
+                                            min="0" 
+                                            max="1" 
+                                            step="0.01" 
+                                            value={bgmVolume} 
+                                            onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                                            className="w-full accent-primary cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 block">SFX Volume</label>
+                                        <input 
+                                            type="range" 
+                                            min="0" 
+                                            max="1" 
+                                            step="0.01" 
+                                            value={sfxVolume} 
+                                            onChange={(e) => setSfxVolume(parseFloat(e.target.value))}
+                                            className="w-full accent-secondary cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         </>
     );

@@ -1,14 +1,23 @@
 import { Head, Link, usePage, router } from '@inertiajs/react';
 import { dashboard, login } from '@/routes';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, Play, BookOpen, X } from 'lucide-react';
-import { useState } from 'react';
+import { LogIn, Play, BookOpen, X, Volume2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useSoundEffects } from '../hooks/useSoundEffects';
 
 export default function Welcome() {
     const { auth } = usePage().props as any;
     const [showGuestModal, setShowGuestModal] = useState(false);
     const [guestName, setGuestName] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const { playSfx, playBgm, stopBgm, bgmVolume, setBgmVolume, sfxVolume, setSfxVolume } = useSoundEffects();
+
+    // Play lobby BGM
+    useEffect(() => {
+        playBgm('lobby');
+        return () => stopBgm();
+    }, [playBgm, stopBgm]);
 
     const handleGuestLogin = (e: React.FormEvent) => {
         e.preventDefault();
@@ -109,6 +118,7 @@ export default function Welcome() {
                         {auth.user ? (
                             <Link
                                 href="/menu"
+                                onClick={() => playSfx('click')}
                                 className="group flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all shadow-lg hover:shadow-primary/50"
                             >
                                 <Play className="w-5 h-5 group-hover:scale-110 transition-transform" />
@@ -118,13 +128,14 @@ export default function Welcome() {
                             <>
                                 <Link
                                     href={login()}
+                                    onClick={() => playSfx('click')}
                                     className="group flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all shadow-lg hover:shadow-primary/50"
                                 >
                                     <LogIn className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
                                     LOGIN
                                 </Link>
                                 <button
-                                    onClick={() => setShowGuestModal(true)}
+                                    onClick={() => { playSfx('click'); setShowGuestModal(true); }}
                                     className="group flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-secondary text-secondary-foreground font-bold rounded-xl hover:bg-secondary/90 transition-all shadow-lg hover:shadow-secondary/50"
                                 >
                                     <Play className="w-5 h-5 group-hover:scale-110 transition-transform" />
@@ -135,6 +146,7 @@ export default function Welcome() {
                         
                         <Link 
                             href="/guide"
+                            onClick={() => playSfx('click')}
                             className="group flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-card text-card-foreground border-2 border-border font-bold rounded-xl hover:bg-muted transition-all shadow-sm"
                         >
                             <BookOpen className="w-5 h-5 group-hover:text-primary transition-colors" />
@@ -192,6 +204,69 @@ export default function Welcome() {
                                     </button>
                                 </form>
                             </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Volume Settings Button */}
+                <div className="fixed bottom-6 right-6 z-50">
+                    <button 
+                        onClick={() => { playSfx('click'); setShowSettings(true); }}
+                        className="bg-card/80 backdrop-blur-md text-muted-foreground hover:text-foreground transition-colors p-3 rounded-full border border-border shadow-lg hover:shadow-xl"
+                    >
+                        <Volume2 className="w-5 h-5" />
+                    </button>
+                </div>
+
+                {/* Volume Settings Modal */}
+                <AnimatePresence>
+                    {showSettings && (
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                            onClick={() => setShowSettings(false)}
+                        >
+                            <div 
+                                className="bg-card p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-border relative"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <button 
+                                    onClick={() => setShowSettings(false)}
+                                    className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                                <h2 className="text-2xl font-black italic mb-6">VOLUME</h2>
+                                
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 block">Music Volume</label>
+                                        <input 
+                                            type="range" 
+                                            min="0" 
+                                            max="1" 
+                                            step="0.01" 
+                                            value={bgmVolume} 
+                                            onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                                            className="w-full accent-primary cursor-pointer"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2 block">SFX Volume</label>
+                                        <input 
+                                            type="range" 
+                                            min="0" 
+                                            max="1" 
+                                            step="0.01" 
+                                            value={sfxVolume} 
+                                            onChange={(e) => setSfxVolume(parseFloat(e.target.value))}
+                                            className="w-full accent-secondary cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
